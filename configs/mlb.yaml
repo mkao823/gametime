@@ -25,8 +25,15 @@ pregame:
   ensemble:
     enabled: true
     tune_weights: true
+    use_stacking: false
+    stack_alpha: 1.0
     export_predictions: true
     min_member_weight: 0.05
     grid_step: 0.05
-    members: [lgbm, heuristic, runs_strength]
+    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, elo]
     runs_strength_window: 30
+  elo:
+    k: 4
+    home_adv_runs: 0.15
+    season_regression: 0.25
+    margin_elo_scale: 50

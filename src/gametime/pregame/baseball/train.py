@@ -12,6 +12,8 @@ from gametime.pregame.baseball.ensemble import (
     combine,
     combine_equal,
     fit_weights_with_metrics,
+    stack_fit_with_metrics,
+    stack_predict,
 )
 from gametime.pregame.baseball.features import (
     FEATURE_COLUMNS,
@@ -20,8 +22,20 @@ from gametime.pregame.baseball.features import (
     TARGET_WINNER,
     build_training_table,
 )
+from gametime.pregame.baseball.models.elo import (
+    BaseballEloParams,
+    EloMember,
+    attach_elo,
+    fit_baseball_elo,
+    save_member_state,
+)
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
 from gametime.pregame.baseball.models.lgbm import LgbmMember
+from gametime.pregame.baseball.models.poisson import PoissonMember, attach_poisson
+from gametime.pregame.baseball.models.pythagorean import (
+    PythagoreanMember,
+    attach_pythagorean,
+)
 from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
@@ -38,6 +52,7 @@ def _build_predictions_export_frame(
     member_preds: dict[str, MemberPrediction],
     ensemble_equal: EnsemblePrediction,
     ensemble_weighted: EnsemblePrediction,
+    ensemble_stacked: EnsemblePrediction | None = None,
 ) -> pd.DataFrame:
     """One row per game with actuals, member preds, and ensemble outputs."""
     out = pd.DataFrame(
@@ -55,6 +70,9 @@ def _build_predictions_export_frame(
     out["ensemble_equal_margin"] = ensemble_equal.margin
     out["ensemble_total"] = ensemble_weighted.total
     out["ensemble_margin"] = ensemble_weighted.margin
+    if ensemble_stacked is not None:
+        out["ensemble_stacked_total"] = ensemble_stacked.total
+        out["ensemble_stacked_margin"] = ensemble_stacked.margin
     return out
 
 
@@ -65,9 +83,14 @@ def export_split_predictions(
     ensemble_equal: EnsemblePrediction,
     ensemble_weighted: EnsemblePrediction,
     path: Path,
+    ensemble_stacked: EnsemblePrediction | None = None,
 ) -> None:
     frame = _build_predictions_export_frame(
-        df, member_preds, ensemble_equal, ensemble_weighted
+        df,
+        member_preds,
+        ensemble_equal,
+        ensemble_weighted,
+        ensemble_stacked,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(path, index=False)
@@ -104,12 +127,18 @@ def train_baseball_pregame(
     tune_ensemble_weights: bool = True,
     weight_grid_step: float = 0.1,
     min_member_weight: float = 0.05,
+    stack_alpha: float = 1.0,
     export_predictions: bool = True,
     eval_dir: Path | None = None,
+    elo_params: BaseballEloParams | None = None,
 ) -> dict[str, Any]:
     games = pd.read_parquet(games_path)
     table = build_training_table(games, form_window=form_window)
     table = attach_runs_strength(table, games, window=runs_strength_window)
+    table = attach_poisson(table, games)
+    table = attach_pythagorean(table, games)
+    elo_params = elo_params or BaseballEloParams()
+    table = attach_elo(table, games, params=elo_params)
     train_df, val_df, test_df = split_table_by_season(
         table,
         train_seasons=train_seasons,
@@ -136,11 +165,38 @@ def train_baseball_pregame(
     heuristic.fit(train_df)
     runs_strength = RunsStrengthMember()
     runs_strength.fit(train_df)
+    poisson = PoissonMember()
+    poisson.fit(train_df)
+    pythagorean = PythagoreanMember()
+    pythagorean.fit(train_df)
+    elo = EloMember(elo_params)
+    elo.fit(train_df)
 
-    members: list[LgbmMember | HeuristicMember | RunsStrengthMember] = [
+    train_games = games[
+        games["season_start_year"].isin(train_seasons)
+        & games["seasontype"].isin(train_seasontypes)
+    ]
+    _, elo_win_state, elo_offdef_state = fit_baseball_elo(train_games, params=elo_params)
+    save_member_state(
+        model_dir / "elo_member_state.json",
+        win_state=elo_win_state,
+        offdef_state=elo_offdef_state,
+    )
+
+    members: list[
+        LgbmMember
+        | HeuristicMember
+        | RunsStrengthMember
+        | PoissonMember
+        | PythagoreanMember
+        | EloMember
+    ] = [
         lgbm,
         heuristic,
         runs_strength,
+        poisson,
+        pythagorean,
+        elo,
     ]
     val_preds: dict[str, MemberPrediction] = {}
     test_preds: dict[str, MemberPrediction] = {}
@@ -179,13 +235,24 @@ def train_baseball_pregame(
         ensemble_weighted_val = ensemble_equal_val
         ensemble_weighted_test = ensemble_equal_test
 
+    stacker, stack_val_fit_metrics = stack_fit_with_metrics(
+        member_pred_list,
+        actual_total_val,
+        actual_margin_val,
+        alpha=stack_alpha,
+    )
+    ensemble_stacked_val = stack_predict(member_pred_list, stacker)
+    ensemble_stacked_test = stack_predict(list(test_preds.values()), stacker)
+
     member_names = [member.name for member in members]
     ensemble_payload = {
-        "version": 1,
+        "version": 2,
         "members": member_names,
         "weights": {"total": weights_total, "margin": weights_margin},
+        "stacker": stacker,
         "winner_mode": "sign_margin",
         "val_metrics": val_tune_metrics,
+        "stack_val_metrics": stack_val_fit_metrics,
     }
     with (model_dir / "ensemble.json").open("w") as f:
         json.dump(ensemble_payload, f, indent=2)
@@ -223,6 +290,16 @@ def train_baseball_pregame(
                 ensemble_weighted_test.total, ensemble_weighted_test.margin, test_df
             ),
         },
+        "ensemble_stacked": {
+            "stacker_alpha": stack_alpha,
+            "val_fit": stack_val_fit_metrics,
+            "val": _metrics(
+                ensemble_stacked_val.total, ensemble_stacked_val.margin, val_df
+            ),
+            "test": _metrics(
+                ensemble_stacked_test.total, ensemble_stacked_test.margin, test_df
+            ),
+        },
         "winner_val_acc_direct": float(
             np.mean((lgbm.predict_winner_proba(val_df) >= 0.5) == val_df[TARGET_WINNER])
         )
@@ -247,6 +324,7 @@ def train_baseball_pregame(
             ensemble_equal=ensemble_equal_val,
             ensemble_weighted=ensemble_weighted_val,
             path=val_path,
+            ensemble_stacked=ensemble_stacked_val,
         )
         export_split_predictions(
             df=test_df,
@@ -254,6 +332,7 @@ def train_baseball_pregame(
             ensemble_equal=ensemble_equal_test,
             ensemble_weighted=ensemble_weighted_test,
             path=test_path,
+            ensemble_stacked=ensemble_stacked_test,
         )
         print(f"[mlb-pregame] Wrote {val_path} and {test_path}")
 

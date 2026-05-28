@@ -9,13 +9,29 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from gametime.pregame.baseball.ensemble import combine
+from gametime.pregame.baseball.ensemble import combine, stack_predict
 from gametime.pregame.baseball.features import (
     build_inference_row,
     build_training_table,
 )
+from gametime.pregame.baseball.models.elo import (
+    BaseballEloParams,
+    EloMember,
+    _latest_elo_columns,
+    attach_elo,
+)
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
 from gametime.pregame.baseball.models.lgbm import LgbmMember
+from gametime.pregame.baseball.models.poisson import (
+    PoissonMember,
+    _latest_poisson_rates,
+    attach_poisson,
+)
+from gametime.pregame.baseball.models.pythagorean import (
+    PythagoreanMember,
+    _latest_pythagorean_rates,
+    attach_pythagorean,
+)
 from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
@@ -86,6 +102,8 @@ class BaseballPregamePredictor:
         runs_strength_window: int = 30,
         train_seasons: list[int],
         train_seasontypes: list[str] | None = None,
+        use_stacking: bool = False,
+        elo_params: BaseballEloParams | None = None,
     ) -> None:
         model_dir = Path(model_dir)
         self.model_dir = model_dir
@@ -107,11 +125,18 @@ class BaseballPregamePredictor:
         self.lgbm = LgbmMember.load(model_dir)
         self.heuristic = HeuristicMember()
         self.runs_strength = RunsStrengthMember()
+        self.poisson = PoissonMember()
+        self.pythagorean = PythagoreanMember()
+        self.elo_params = elo_params or BaseballEloParams()
+        self.elo = EloMember(self.elo_params)
 
         table = build_training_table(self.games, form_window=self.form_window)
         table = attach_runs_strength(
             table, self.games, window=self.runs_strength_window
         )
+        table = attach_poisson(table, self.games)
+        table = attach_pythagorean(table, self.games)
+        table = attach_elo(table, self.games, params=self.elo_params)
         seasontypes = train_seasontypes or ["rg"]
         train_df = table[
             table["season_start_year"].isin(train_seasons)
@@ -123,7 +148,12 @@ class BaseballPregamePredictor:
             )
         self.heuristic.fit(train_df)
         self.runs_strength.fit(train_df)
+        self.poisson.fit(train_df)
+        self.pythagorean.fit(train_df)
+        self.elo.fit(train_df)
 
+        self._use_stacking = use_stacking
+        self._stacker = self.ensemble_cfg.get("stacker")
         self._weights_total = self.ensemble_cfg["weights"]["total"]
         self._weights_margin = self.ensemble_cfg["weights"]["margin"]
         self._winner_mode = self.ensemble_cfg.get("winner_mode", "sign_margin")
@@ -149,17 +179,36 @@ class BaseballPregamePredictor:
             runs_strength_window=self.runs_strength_window,
             is_playoff=is_playoff,
         )
+        row_df = row_df.assign(**_latest_poisson_rates(self.games, home=home, away=away))
+        row_df = row_df.assign(
+            **_latest_pythagorean_rates(self.games, home=home, away=away)
+        )
+        row_df = row_df.assign(
+            **_latest_elo_columns(
+                self.games, home=home, away=away, params=self.elo_params
+            )
+        )
 
         member_preds: list[MemberPrediction] = [
             self.lgbm.predict(row_df),
             self.heuristic.predict(row_df),
             self.runs_strength.predict(row_df),
+            self.poisson.predict(row_df),
+            self.pythagorean.predict(row_df),
+            self.elo.predict(row_df),
         ]
-        ensemble = combine(
-            member_preds,
-            weights_total=self._weights_total,
-            weights_margin=self._weights_margin,
-        )
+        if self._use_stacking:
+            if not self._stacker:
+                raise ValueError(
+                    "use_stacking is enabled but ensemble.json has no stacker artifact"
+                )
+            ensemble = stack_predict(member_preds, self._stacker)
+        else:
+            ensemble = combine(
+                member_preds,
+                weights_total=self._weights_total,
+                weights_margin=self._weights_margin,
+            )
         total = float(ensemble.total[0])
         margin = float(ensemble.margin[0])
 

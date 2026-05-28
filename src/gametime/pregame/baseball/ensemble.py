@@ -2,11 +2,23 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
+from sklearn.linear_model import Ridge
 
 from gametime.pregame.baseball.prediction import EnsemblePrediction, MemberPrediction
+
+# Stacker artifact schema (nested under ensemble.json key ``stacker``):
+# {
+#   "total": {
+#     "members": ["lgbm", "heuristic", ...],  # column order for coef
+#     "intercept": float,
+#     "coef": {"lgbm": float, ...},
+#     "alpha": float
+#   },
+#   "margin": { ... }
+# }
 
 
 def _validate_members(member_predictions: Sequence[MemberPrediction]) -> list[str]:
@@ -110,34 +122,26 @@ def _grid_search_target(
             best_weights = weights.copy()
             best_balance = balance
 
-    if n == 1:
-        only = {member_names[0]: 1.0}
-        pred = stacks[member_names[0]]
-        return only, float(np.mean(np.abs(pred - actual)))
-
-    if n == 2:
-        for w0 in grid:
-            w1 = 1.0 - w0
-            if w1 < -1e-9:
-                continue
-            weights = {member_names[0]: float(w0), member_names[1]: float(w1)}
-            pred = weights[member_names[0]] * stacks[member_names[0]] + weights[
-                member_names[1]
-            ] * stacks[member_names[1]]
+    def _recurse(idx: int, remaining: float, partial: list[float]) -> None:
+        if idx == n - 1:
+            w_last = remaining
+            if w_last < -1e-9:
+                return
+            weights = {
+                member_names[j]: float(partial[j]) for j in range(n - 1)
+            }
+            weights[member_names[n - 1]] = float(w_last)
+            pred = sum(weights[name] * stacks[name] for name in member_names)
             _consider(weights, float(np.mean(np.abs(pred - actual))))
-    else:
-        for w0 in grid:
-            for w1 in grid:
-                w2 = 1.0 - w0 - w1
-                if w2 < -1e-9:
-                    continue
-                weights = {
-                    member_names[0]: float(w0),
-                    member_names[1]: float(w1),
-                    member_names[2]: float(w2),
-                }
-                pred = sum(weights[name] * stacks[name] for name in member_names)
-                _consider(weights, float(np.mean(np.abs(pred - actual))))
+            return
+        for w in grid:
+            if w > remaining + 1e-9:
+                continue
+            partial.append(float(w))
+            _recurse(idx + 1, remaining - w, partial)
+            partial.pop()
+
+    _recurse(0, 1.0, [])
 
     if best_weights is None:
         equal = {name: 1.0 / len(member_names) for name in member_names}
@@ -210,3 +214,121 @@ def fit_weights_with_metrics(
         "min_member_weight": min_member_weight,
     }
     return weights_total, weights_margin, val_metrics
+
+
+def _member_feature_matrix(
+    member_predictions: Sequence[MemberPrediction],
+    *,
+    target: Literal["total", "margin"],
+) -> tuple[np.ndarray, list[str]]:
+    member_names = _validate_members(member_predictions)
+    pred_by_name = {pred.member: pred for pred in member_predictions}
+    if target == "total":
+        cols = [pred_by_name[name].total for name in member_names]
+    else:
+        cols = [pred_by_name[name].margin for name in member_names]
+    return np.column_stack(cols), member_names
+
+
+def _ridge_target_model(
+    X: np.ndarray,
+    y: np.ndarray,
+    member_names: list[str],
+    *,
+    alpha: float,
+) -> dict[str, Any]:
+    if len(y) == 0:
+        coef = {name: 1.0 / len(member_names) for name in member_names}
+        return {
+            "members": member_names,
+            "intercept": 0.0,
+            "coef": coef,
+            "alpha": alpha,
+        }
+    model = Ridge(alpha=alpha, fit_intercept=True)
+    model.fit(X, y)
+    coef = {name: float(c) for name, c in zip(member_names, model.coef_)}
+    return {
+        "members": member_names,
+        "intercept": float(model.intercept_),
+        "coef": coef,
+        "alpha": alpha,
+    }
+
+
+def _apply_target_model(
+    X: np.ndarray,
+    member_names: list[str],
+    model: dict[str, Any],
+) -> np.ndarray:
+    names = model["members"]
+    if names != member_names:
+        raise ValueError(
+            f"stacker member order {names} does not match predictions {member_names}"
+        )
+    coef = np.array([model["coef"][name] for name in names], dtype=float)
+    return model["intercept"] + X @ coef
+
+
+def stack_fit(
+    member_predictions: Sequence[MemberPrediction],
+    actual_total: np.ndarray,
+    actual_margin: np.ndarray,
+    *,
+    alpha: float = 1.0,
+) -> dict[str, Any]:
+    """Fit Ridge meta-models on validation member predictions (val only)."""
+    X_total, names_total = _member_feature_matrix(member_predictions, target="total")
+    X_margin, names_margin = _member_feature_matrix(member_predictions, target="margin")
+    if names_total != names_margin:
+        raise ValueError("member name mismatch between total and margin stacks")
+    return {
+        "total": _ridge_target_model(
+            X_total, actual_total, names_total, alpha=alpha
+        ),
+        "margin": _ridge_target_model(
+            X_margin, actual_margin, names_margin, alpha=alpha
+        ),
+    }
+
+
+def stack_predict(
+    member_predictions: Sequence[MemberPrediction],
+    stacker: dict[str, Any],
+) -> EnsemblePrediction:
+    """Apply a stacker artifact from stack_fit to member predictions."""
+    X_total, names_total = _member_feature_matrix(member_predictions, target="total")
+    X_margin, names_margin = _member_feature_matrix(member_predictions, target="margin")
+    return EnsemblePrediction(
+        total=_apply_target_model(X_total, names_total, stacker["total"]),
+        margin=_apply_target_model(X_margin, names_margin, stacker["margin"]),
+    )
+
+
+def stack_fit_with_metrics(
+    member_predictions: Sequence[MemberPrediction],
+    actual_total: np.ndarray,
+    actual_margin: np.ndarray,
+    *,
+    alpha: float = 1.0,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """stack_fit plus validation metrics for the stacked ensemble on val."""
+    stacker = stack_fit(
+        member_predictions,
+        actual_total,
+        actual_margin,
+        alpha=alpha,
+    )
+    stacked = stack_predict(member_predictions, stacker)
+    val_metrics: dict[str, Any] = {
+        "n": float(len(actual_total)),
+        "total_mae": float(np.mean(np.abs(stacked.total - actual_total))),
+        "margin_mae": float(np.mean(np.abs(stacked.margin - actual_margin))),
+        "winner_accuracy": float(
+            np.mean((stacked.margin > 0) == (actual_margin > 0))
+        )
+        if len(actual_margin)
+        else None,
+        "alpha": alpha,
+    }
+    return stacker, val_metrics
