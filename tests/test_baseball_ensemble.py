@@ -11,6 +11,9 @@ from gametime.pregame.baseball.ensemble import (
     combine_equal,
     fit_weights,
     fit_weights_with_metrics,
+    stack_fit,
+    stack_fit_with_metrics,
+    stack_predict,
 )
 from gametime.pregame.baseball.models.poisson import attach_poisson
 from gametime.pregame.baseball.models.runs_strength import attach_runs_strength
@@ -190,6 +193,64 @@ def test_grid_search_respects_min_member_weight_four_members():
         assert weights_margin[name] >= min_w - 1e-9
     assert sum(weights_total.values()) == pytest.approx(1.0, abs=1e-6)
     assert sum(weights_margin.values()) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_stack_fit_predict_recovers_known_linear_combo():
+    """Ridge should recover a fixed linear blend on synthetic member preds."""
+    n = 40
+    rng = np.random.default_rng(0)
+    actual_total = rng.uniform(7.0, 11.0, size=n)
+    actual_margin = rng.uniform(-3.0, 3.0, size=n)
+    members = [
+        _member("a", (actual_total + 0.3).tolist(), (actual_margin - 0.2).tolist()),
+        _member("b", (actual_total - 0.1).tolist(), (actual_margin + 0.4).tolist()),
+        _member("c", (actual_total + 0.05).tolist(), (actual_margin + 0.1).tolist()),
+    ]
+    stacker = stack_fit(members, actual_total, actual_margin, alpha=0.01)
+    stacked = stack_predict(members, stacker)
+    linear = combine(
+        members,
+        weights_total={"a": 0.5, "b": 0.3, "c": 0.2},
+        weights_margin={"a": 0.4, "b": 0.4, "c": 0.2},
+    )
+    stack_mae_total = float(np.mean(np.abs(stacked.total - actual_total)))
+    linear_mae_total = float(np.mean(np.abs(linear.total - actual_total)))
+    assert stack_mae_total <= linear_mae_total + 0.05
+
+
+def test_stack_fit_with_metrics_keys():
+    actual_total = np.array([8.0, 10.0, 9.0, 11.0])
+    actual_margin = np.array([2.0, -1.0, 0.5, 1.0])
+    members = [
+        _member("m1", [8.5, 9.5, 9.0, 10.5], [2.0, -0.5, 0.0, 0.8]),
+        _member("m2", [7.5, 10.5, 9.5, 11.5], [1.5, -1.5, 1.0, 1.2]),
+    ]
+    stacker, metrics = stack_fit_with_metrics(
+        members, actual_total, actual_margin, alpha=1.0
+    )
+    assert "total" in stacker and "margin" in stacker
+    for target in ("total", "margin"):
+        assert set(stacker[target]) >= {"members", "intercept", "coef", "alpha"}
+    assert set(metrics) >= {"n", "total_mae", "margin_mae", "winner_accuracy", "alpha"}
+    out = stack_predict(members, stacker)
+    assert len(out.total) == len(actual_total)
+    assert len(out.margin) == len(actual_margin)
+
+
+def test_stack_predict_rejects_member_order_mismatch():
+    actual_total = np.array([9.0, 9.0])
+    actual_margin = np.array([1.0, -1.0])
+    fit_members = [
+        _member("a", [9.0, 9.0], [1.0, -1.0]),
+        _member("b", [9.5, 8.5], [1.5, -1.5]),
+    ]
+    stacker = stack_fit(fit_members, actual_total, actual_margin)
+    predict_members = [
+        _member("b", [9.5, 8.5], [1.5, -1.5]),
+        _member("a", [9.0, 9.0], [1.0, -1.0]),
+    ]
+    with pytest.raises(ValueError, match="member order"):
+        stack_predict(predict_members, stacker)
 
 
 def test_attach_poisson_excludes_current_game_runs():

@@ -327,6 +327,7 @@ def pregame_train(argv=None):
             min_member_weight=float(
                 pg.get("ensemble", {}).get("min_member_weight", 0.05)
             ),
+            stack_alpha=float(pg.get("ensemble", {}).get("stack_alpha", 1.0)),
             export_predictions=bool(
                 pg.get("ensemble", {}).get("export_predictions", True)
             ),
@@ -427,6 +428,7 @@ def pregame(argv=None):
             runs_strength_window=int(ensemble_cfg.get("runs_strength_window", 30)),
             train_seasons=train_cfg["train_seasons"],
             train_seasontypes=train_cfg.get("train_seasontypes", ["rg"]),
+            use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
         )
         pred = predictor.predict(
             home=args.home,
