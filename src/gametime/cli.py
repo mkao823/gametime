@@ -366,6 +366,7 @@ def pregame(argv=None):
     from gametime.pregame.log import log_pregame_prediction, write_pregame_json
     from gametime.pregame.predict import PregamePredictor, format_prediction
     from gametime.pregame.vegas import VegasLineUnavailable
+    from gametime.sports import get_sport
 
     p = argparse.ArgumentParser(description="Pre-game winner/total/margin prediction")
     p.add_argument("--config", default="configs/default.yaml")
@@ -387,10 +388,61 @@ def pregame(argv=None):
 
     root = project_root()
     cfg = load_config(root / args.config)
+    sport = get_sport(cfg)
     pg = cfg.get("pregame", {})
+    data_cfg = cfg.get("data", {})
+    train_cfg = cfg.get("train", {})
     model_dir = root / pg.get("model_dir", "models/pregame")
-    team_games_path = root / pg.get("team_games_path", "data/processed/team_games.parquet")
     form_window = int(pg.get("form_window", 10))
+    is_playoff = not args.regular_season
+
+    if sport.family == "baseball":
+        if args.with_vegas or args.spread is not None or args.total is not None:
+            print(
+                "Vegas blend is not implemented for MLB pregame yet (see roadmap W6a).",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        from gametime.pregame.baseball.predict import (
+            BaseballPregamePredictor,
+            format_baseball_prediction,
+        )
+
+        games_path = root / pg.get("games_path", data_cfg.get("games_path"))
+        ensemble_cfg = pg.get("ensemble", {})
+        predictor = BaseballPregamePredictor(
+            model_dir,
+            games_path,
+            form_window=form_window,
+            runs_strength_window=int(ensemble_cfg.get("runs_strength_window", 30)),
+            train_seasons=train_cfg["train_seasons"],
+            train_seasontypes=train_cfg.get("train_seasontypes", ["rg"]),
+        )
+        pred = predictor.predict(
+            home=args.home,
+            away=args.away,
+            is_playoff=is_playoff,
+        )
+        print(format_baseball_prediction(pred))
+
+        if not args.no_log:
+            log_dir = root / cfg.get("live", {}).get("log_dir", "data/live_predictions")
+            path = log_pregame_prediction(
+                log_dir,
+                predictor.to_pregame_prediction(pred),
+                game_id=args.game_id,
+            )
+            print(f"\nLogged → {path}")
+        if args.json_out:
+            out = Path(args.json_out)
+            if not out.is_absolute():
+                out = root / out
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(pred.as_dict(), indent=2, default=float))
+            print(f"JSON   → {out}")
+        return
+
+    team_games_path = root / pg.get("team_games_path", "data/processed/team_games.parquet")
     vegas_weight = (
         args.vegas_weight if args.vegas_weight is not None
         else float(pg.get("vegas_weight", 0.5))
@@ -401,7 +453,7 @@ def pregame(argv=None):
         pred = predictor.predict(
             home=args.home,
             away=args.away,
-            is_playoff=not args.regular_season,
+            is_playoff=is_playoff,
             with_vegas=args.with_vegas,
             spread_override=args.spread,
             total_override=args.total,

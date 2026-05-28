@@ -145,3 +145,106 @@ def build_training_table(games: pd.DataFrame, *, form_window: int = 10) -> pd.Da
     table["has_starting_pitcher"] = 0
     table = table.dropna(subset=FEATURE_COLUMNS[:8])
     return table
+
+
+def _latest_runs_strength(
+    games: pd.DataFrame,
+    *,
+    home: str,
+    away: str,
+    window: int,
+) -> dict[str, float]:
+    """Per-team runs-strength rates from prior games only (for live inference)."""
+    games = games.sort_values("game_date").reset_index(drop=True)
+    tg = _team_game_rows(games)
+    g = tg.groupby("team", sort=False)
+    min_periods = max(3, window // 6)
+    tg = tg.copy()
+    tg["rs_off"] = g["runs_for"].transform(
+        lambda s: s.shift(1).rolling(window, min_periods=min_periods).mean()
+    )
+    tg["rs_def"] = g["runs_against"].transform(
+        lambda s: s.shift(1).rolling(window, min_periods=min_periods).mean()
+    )
+
+    def _last(team: str, col: str) -> float:
+        sub = tg.loc[tg["team"] == team, col]
+        if sub.empty or pd.isna(sub.iloc[-1]):
+            return LEAGUE_RPG
+        return float(sub.iloc[-1])
+
+    return {
+        "home_rs_off": _last(home, "rs_off"),
+        "home_rs_def": _last(home, "rs_def"),
+        "away_rs_off": _last(away, "rs_off"),
+        "away_rs_def": _last(away, "rs_def"),
+    }
+
+
+def _form_game_count(tg: pd.DataFrame, team: str, window: int) -> int:
+    sub = tg.loc[tg["team"] == team, "runs_for"]
+    if sub.empty:
+        return 0
+    prior = sub.shift(1).tail(window)
+    return int(prior.notna().sum())
+
+
+def build_inference_row(
+    *,
+    home: str,
+    away: str,
+    games: pd.DataFrame,
+    form_window: int = 10,
+    runs_strength_window: int = 30,
+    is_playoff: bool = False,
+) -> pd.DataFrame:
+    """One-row feature frame for a hypothetical matchup (no label leakage)."""
+    home, away = home.upper(), away.upper()
+    games = games.sort_values("game_date").reset_index(drop=True)
+    tg = _rolling_team_stats(_team_game_rows(games), form_window)
+
+    def _latest(team: str) -> pd.Series:
+        sub = tg.loc[tg["team"] == team]
+        if sub.empty:
+            raise ValueError(f"No historical games for team {team!r}")
+        return sub.iloc[-1]
+
+    h = _latest(home)
+    a = _latest(away)
+    rs = _latest_runs_strength(
+        games, home=home, away=away, window=runs_strength_window
+    )
+
+    row = {
+        "home_form_runs_scored": float(h["form_runs_scored"])
+        if pd.notna(h["form_runs_scored"])
+        else LEAGUE_RPG,
+        "home_form_runs_allowed": float(h["form_runs_allowed"])
+        if pd.notna(h["form_runs_allowed"])
+        else LEAGUE_RPG,
+        "away_form_runs_scored": float(a["form_runs_scored"])
+        if pd.notna(a["form_runs_scored"])
+        else LEAGUE_RPG,
+        "away_form_runs_allowed": float(a["form_runs_allowed"])
+        if pd.notna(a["form_runs_allowed"])
+        else LEAGUE_RPG,
+        "home_form_winpct": float(h["form_winpct"]) if pd.notna(h["form_winpct"]) else 0.5,
+        "away_form_winpct": float(a["form_winpct"]) if pd.notna(a["form_winpct"]) else 0.5,
+        "home_rest_days": float(h["rest_days"]) if pd.notna(h["rest_days"]) else 1.0,
+        "away_rest_days": float(a["rest_days"]) if pd.notna(a["rest_days"]) else 1.0,
+        "home_win_streak": float(h["win_streak"]),
+        "away_win_streak": float(a["win_streak"]),
+        "is_playoff": int(bool(is_playoff)),
+        "has_weather": 0,
+        "has_lineup": 0,
+        "has_starting_pitcher": 0,
+        **rs,
+    }
+    row["form_off_diff"] = row["home_form_runs_scored"] - row["away_form_runs_scored"]
+    row["form_def_diff"] = (
+        row["away_form_runs_allowed"] - row["home_form_runs_allowed"]
+    )
+    row["expected_form_total"] = (
+        row["home_form_runs_scored"] + row["away_form_runs_scored"]
+    )
+    return pd.DataFrame([row])
