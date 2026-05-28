@@ -342,6 +342,10 @@ def pregame_train(argv=None):
             ),
             eval_dir=root / Path(pg.get("report_path", "reports/mlb/eval/pregame_summary.json")).parent,
             elo_params=baseball_elo_params,
+            pitcher_games_path=root
+            / data_cfg.get(
+                "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+            ),
         )
         print(json.dumps(meta, indent=2, default=str))
         return
@@ -444,6 +448,9 @@ def pregame_slate(argv=None):
         season_regression=float(elo_cfg.get("season_regression", 0.25)),
         margin_elo_scale=float(elo_cfg.get("margin_elo_scale", 50.0)),
     )
+    pitcher_games_path = root / data_cfg.get(
+        "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+    )
     predictor = BaseballPregamePredictor(
         model_dir,
         games_path,
@@ -453,6 +460,7 @@ def pregame_slate(argv=None):
         train_seasontypes=train_cfg.get("train_seasontypes", ["rg"]),
         use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
         elo_params=baseball_elo_params,
+        pitcher_games_path=pitcher_games_path,
     )
 
     is_playoff = not args.regular_season
@@ -558,6 +566,9 @@ def pregame(argv=None):
             season_regression=float(elo_cfg.get("season_regression", 0.25)),
             margin_elo_scale=float(elo_cfg.get("margin_elo_scale", 50.0)),
         )
+        pitcher_games_path = root / data_cfg.get(
+            "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+        )
         predictor = BaseballPregamePredictor(
             model_dir,
             games_path,
@@ -567,6 +578,7 @@ def pregame(argv=None):
             train_seasontypes=train_cfg.get("train_seasontypes", ["rg"]),
             use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
             elo_params=baseball_elo_params,
+            pitcher_games_path=pitcher_games_path,
         )
         pred = predictor.predict(
             home=args.home,
