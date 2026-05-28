@@ -63,35 +63,81 @@ def combine_equal(member_predictions: Sequence[MemberPrediction]) -> EnsemblePre
     return combine(member_predictions, weights_total=equal, weights_margin=equal)
 
 
+def _weight_balance_score(weights: dict[str, float], member_names: list[str]) -> float:
+    """Higher score = more balanced blend (Shannon entropy of normalized weights)."""
+    vals = np.array([max(weights.get(name, 0.0), 0.0) for name in member_names], dtype=float)
+    total = float(vals.sum())
+    if total <= 0:
+        return 0.0
+    p = vals[vals > 0] / total
+    return float(-np.sum(p * np.log(p)))
+
+
 def _grid_search_target(
     stacks: dict[str, np.ndarray],
     member_names: list[str],
     actual: np.ndarray,
     *,
     step: float,
+    min_member_weight: float = 0.05,
 ) -> tuple[dict[str, float], float]:
     """Exhaustive grid on simplex (weights sum to 1) minimizing MAE for one target."""
     if len(actual) == 0:
         equal = {name: 1.0 / len(member_names) for name in member_names}
         return equal, float("nan")
 
+    n = len(member_names)
+    floor = max(float(min_member_weight), 0.0)
     grid = np.arange(0.0, 1.0 + step / 2, step)
     best_weights: dict[str, float] | None = None
     best_mae = float("inf")
+    best_balance = -1.0
 
-    for w0 in grid:
-        for w1 in grid:
-            w2 = 1.0 - w0 - w1
-            if w2 < -1e-9:
+    def _consider(weights: dict[str, float], mae: float) -> None:
+        nonlocal best_weights, best_mae, best_balance
+        if any(weights[name] < floor - 1e-9 for name in member_names):
+            return
+        balance = _weight_balance_score(weights, member_names)
+        if mae < best_mae - 1e-9:
+            best_mae = mae
+            best_weights = weights.copy()
+            best_balance = balance
+            return
+        if abs(mae - best_mae) <= 1e-9 and (
+            best_weights is None or balance > best_balance + 1e-12
+        ):
+            best_mae = mae
+            best_weights = weights.copy()
+            best_balance = balance
+
+    if n == 1:
+        only = {member_names[0]: 1.0}
+        pred = stacks[member_names[0]]
+        return only, float(np.mean(np.abs(pred - actual)))
+
+    if n == 2:
+        for w0 in grid:
+            w1 = 1.0 - w0
+            if w1 < -1e-9:
                 continue
             weights = {member_names[0]: float(w0), member_names[1]: float(w1)}
-            if len(member_names) > 2:
-                weights[member_names[2]] = float(max(w2, 0.0))
-            pred = sum(weights[name] * stacks[name] for name in member_names)
-            mae = float(np.mean(np.abs(pred - actual)))
-            if mae < best_mae:
-                best_mae = mae
-                best_weights = weights.copy()
+            pred = weights[member_names[0]] * stacks[member_names[0]] + weights[
+                member_names[1]
+            ] * stacks[member_names[1]]
+            _consider(weights, float(np.mean(np.abs(pred - actual))))
+    else:
+        for w0 in grid:
+            for w1 in grid:
+                w2 = 1.0 - w0 - w1
+                if w2 < -1e-9:
+                    continue
+                weights = {
+                    member_names[0]: float(w0),
+                    member_names[1]: float(w1),
+                    member_names[2]: float(w2),
+                }
+                pred = sum(weights[name] * stacks[name] for name in member_names)
+                _consider(weights, float(np.mean(np.abs(pred - actual))))
 
     if best_weights is None:
         equal = {name: 1.0 / len(member_names) for name in member_names}
@@ -105,6 +151,7 @@ def fit_weights(
     actual_margin: np.ndarray,
     *,
     step: float = 0.1,
+    min_member_weight: float = 0.05,
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Tune per-target member weights on validation predictions only (grid search)."""
     member_names = _validate_members(member_predictions)
@@ -113,10 +160,18 @@ def fit_weights(
     margin_stacks = {name: pred_by_name[name].margin for name in member_names}
 
     weights_total, _ = _grid_search_target(
-        total_stacks, member_names, actual_total, step=step
+        total_stacks,
+        member_names,
+        actual_total,
+        step=step,
+        min_member_weight=min_member_weight,
     )
     weights_margin, _ = _grid_search_target(
-        margin_stacks, member_names, actual_margin, step=step
+        margin_stacks,
+        member_names,
+        actual_margin,
+        step=step,
+        min_member_weight=min_member_weight,
     )
     return weights_total, weights_margin
 
@@ -127,6 +182,7 @@ def fit_weights_with_metrics(
     actual_margin: np.ndarray,
     *,
     step: float = 0.1,
+    min_member_weight: float = 0.05,
 ) -> tuple[dict[str, float], dict[str, float], dict[str, Any]]:
     """fit_weights plus validation metrics for the tuned weighted ensemble."""
     weights_total, weights_margin = fit_weights(
@@ -134,6 +190,7 @@ def fit_weights_with_metrics(
         actual_total,
         actual_margin,
         step=step,
+        min_member_weight=min_member_weight,
     )
     weighted = combine(
         member_predictions,
@@ -150,5 +207,6 @@ def fit_weights_with_metrics(
         if len(actual_margin)
         else None,
         "grid_step": step,
+        "min_member_weight": min_member_weight,
     }
     return weights_total, weights_margin, val_metrics
