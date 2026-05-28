@@ -92,3 +92,18 @@ class LgbmMember(BaseballMemberModel):
             self._boost_winner.predict(df[FEATURE_COLUMNS]),
             index=df.index,
         )
+
+    @classmethod
+    def load(cls, model_dir: Path) -> LgbmMember:
+        """Load fitted boosters from disk (inference)."""
+        inst = cls(model_dir)
+        inst._boost_total = lgb.Booster(
+            model_file=str(model_dir / f"{TARGET_TOTAL}.txt")
+        )
+        inst._boost_margin = lgb.Booster(
+            model_file=str(model_dir / f"{TARGET_MARGIN}.txt")
+        )
+        winner_path = model_dir / f"{TARGET_WINNER}.txt"
+        if winner_path.exists():
+            inst._boost_winner = lgb.Booster(model_file=str(winner_path))
+        return inst
