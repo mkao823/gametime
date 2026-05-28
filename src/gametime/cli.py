@@ -318,6 +318,9 @@ def pregame_train(argv=None):
             runs_strength_window=int(
                 pg.get("ensemble", {}).get("runs_strength_window", 30)
             ),
+            tune_ensemble_weights=bool(
+                pg.get("ensemble", {}).get("tune_weights", True)
+            ),
         )
         print(json.dumps(meta, indent=2, default=str))
         return
