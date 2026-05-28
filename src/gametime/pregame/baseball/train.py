@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
@@ -18,30 +17,9 @@ from gametime.pregame.baseball.features import (
     build_training_table,
 )
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
+from gametime.pregame.baseball.models.lgbm import LgbmMember
 from gametime.pregame.baseball.prediction import MemberPrediction
-from gametime.train.common import lgb_binary_params, lgb_regression_params, split_table_by_season
-
-
-def _train_booster(
-    train_df: pd.DataFrame,
-    val_df: pd.DataFrame,
-    *,
-    label: str,
-    params: dict[str, Any],
-    model_path: Path,
-    num_boost_round: int = 500,
-) -> lgb.Booster:
-    dtrain = lgb.Dataset(train_df[FEATURE_COLUMNS], label=train_df[label])
-    dval = lgb.Dataset(val_df[FEATURE_COLUMNS], label=val_df[label], reference=dtrain)
-    booster = lgb.train(
-        params,
-        dtrain,
-        num_boost_round=num_boost_round,
-        valid_sets=[dval],
-        callbacks=[lgb.early_stopping(50, verbose=False)],
-    )
-    booster.save_model(str(model_path))
-    return booster
+from gametime.train.common import split_table_by_season
 
 
 def _metrics(pred_total: np.ndarray, pred_margin: np.ndarray, df: pd.DataFrame) -> dict[str, float]:
@@ -94,46 +72,23 @@ def train_baseball_pregame(
     model_dir.mkdir(parents=True, exist_ok=True)
     print(f"[mlb-pregame] train={len(train_df)} val={len(val_df)} test={len(test_df)}")
 
-    total_model = model_dir / f"{TARGET_TOTAL}.txt"
-    margin_model = model_dir / f"{TARGET_MARGIN}.txt"
-    winner_model = model_dir / f"{TARGET_WINNER}.txt"
-
-    boost_total = _train_booster(
-        train_df,
-        val_df,
-        label=TARGET_TOTAL,
-        params=lgb_regression_params(num_leaves=31, min_data_in_leaf=30),
-        model_path=total_model,
-    )
-    boost_margin = _train_booster(
-        train_df,
-        val_df,
-        label=TARGET_MARGIN,
-        params=lgb_regression_params(num_leaves=31, min_data_in_leaf=30),
-        model_path=margin_model,
-    )
-    boost_winner = _train_booster(
-        train_df,
-        val_df,
-        label=TARGET_WINNER,
-        params=lgb_binary_params(),
-        model_path=winner_model,
-    )
-
-    pred_total_val = boost_total.predict(val_df[FEATURE_COLUMNS])
-    pred_margin_val = boost_margin.predict(val_df[FEATURE_COLUMNS])
-    pred_total_test = boost_total.predict(test_df[FEATURE_COLUMNS])
-    pred_margin_test = boost_margin.predict(test_df[FEATURE_COLUMNS])
-
+    lgbm = LgbmMember(model_dir)
+    lgbm.fit(train_df, val_df)
     heuristic = HeuristicMember()
     heuristic.fit(train_df)
-    heuristic_val = heuristic.predict(val_df)
-    heuristic_test = heuristic.predict(test_df)
 
-    lgbm_val = MemberPrediction(member="lgbm", total=pred_total_val, margin=pred_margin_val)
-    lgbm_test = MemberPrediction(member="lgbm", total=pred_total_test, margin=pred_margin_test)
-    ensemble_equal_val = combine_equal([lgbm_val, heuristic_val])
-    ensemble_equal_test = combine_equal([lgbm_test, heuristic_test])
+    members: list[LgbmMember | HeuristicMember] = [lgbm, heuristic]
+    val_preds: dict[str, MemberPrediction] = {}
+    test_preds: dict[str, MemberPrediction] = {}
+    for member in members:
+        val_preds[member.name] = member.predict(val_df)
+        test_preds[member.name] = member.predict(test_df)
+
+    ensemble_equal_val = combine_equal(list(val_preds.values()))
+    ensemble_equal_test = combine_equal(list(test_preds.values()))
+
+    lgbm_val = val_preds["lgbm"]
+    lgbm_test = test_preds["lgbm"]
 
     meta = {
         "sport": "mlb",
@@ -142,24 +97,21 @@ def train_baseball_pregame(
         "train_n": len(train_df),
         "val_n": len(val_df),
         "test_n": len(test_df),
-        "val": _metrics(pred_total_val, pred_margin_val, val_df),
-        "test": _metrics(pred_total_test, pred_margin_test, test_df),
+        "val": _metrics(lgbm_val.total, lgbm_val.margin, val_df),
+        "test": _metrics(lgbm_test.total, lgbm_test.margin, test_df),
         "members": {
-            "lgbm": {
-                "val": _metrics(pred_total_val, pred_margin_val, val_df),
-                "test": _metrics(pred_total_test, pred_margin_test, test_df),
-            },
-            "heuristic": {
-                "val": _metrics(heuristic_val.total, heuristic_val.margin, val_df),
-                "test": _metrics(heuristic_test.total, heuristic_test.margin, test_df),
-            },
+            name: {
+                "val": _metrics(val_preds[name].total, val_preds[name].margin, val_df),
+                "test": _metrics(test_preds[name].total, test_preds[name].margin, test_df),
+            }
+            for name in val_preds
         },
         "ensemble_equal": {
             "val": _metrics(ensemble_equal_val.total, ensemble_equal_val.margin, val_df),
             "test": _metrics(ensemble_equal_test.total, ensemble_equal_test.margin, test_df),
         },
         "winner_val_acc_direct": float(
-            np.mean((boost_winner.predict(val_df[FEATURE_COLUMNS]) >= 0.5) == val_df[TARGET_WINNER])
+            np.mean((lgbm.predict_winner_proba(val_df) >= 0.5) == val_df[TARGET_WINNER])
         )
         if len(val_df)
         else None,
