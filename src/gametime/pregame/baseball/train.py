@@ -36,10 +36,12 @@ from gametime.pregame.baseball.models.pythagorean import (
     PythagoreanMember,
     attach_pythagorean,
 )
+from gametime.pregame.baseball.models.pitcher import PitcherMember, attach_pitcher
 from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
 )
+from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.pregame.baseball.prediction import (
     EnsemblePrediction,
     MemberPrediction,
@@ -131,9 +133,16 @@ def train_baseball_pregame(
     export_predictions: bool = True,
     eval_dir: Path | None = None,
     elo_params: BaseballEloParams | None = None,
+    pitcher_games_path: Path | None = None,
 ) -> dict[str, Any]:
     games = pd.read_parquet(games_path)
     table = build_training_table(games, form_window=form_window)
+    pitcher_games = (
+        load_pitcher_games(pitcher_games_path)
+        if pitcher_games_path is not None
+        else load_pitcher_games(None)
+    )
+    table = attach_pitcher(table, pitcher_games)
     table = attach_runs_strength(table, games, window=runs_strength_window)
     table = attach_poisson(table, games)
     table = attach_pythagorean(table, games)
@@ -169,6 +178,8 @@ def train_baseball_pregame(
     poisson.fit(train_df)
     pythagorean = PythagoreanMember()
     pythagorean.fit(train_df)
+    pitcher = PitcherMember()
+    pitcher.fit(train_df)
     elo = EloMember(elo_params)
     elo.fit(train_df)
 
@@ -189,6 +200,7 @@ def train_baseball_pregame(
         | RunsStrengthMember
         | PoissonMember
         | PythagoreanMember
+        | PitcherMember
         | EloMember
     ] = [
         lgbm,
@@ -196,6 +208,7 @@ def train_baseball_pregame(
         runs_strength,
         poisson,
         pythagorean,
+        pitcher,
         elo,
     ]
     val_preds: dict[str, MemberPrediction] = {}
@@ -270,6 +283,8 @@ def train_baseball_pregame(
         "weight_fit_split": "val",
         "form_window": form_window,
         "runs_strength_window": runs_strength_window,
+        "pitcher_games_path": str(pitcher_games_path) if pitcher_games_path else None,
+        "has_starting_pitcher_frac": float((table["has_starting_pitcher"] == 1).mean()),
         "feature_columns": FEATURE_COLUMNS,
         "train_n": len(train_df),
         "val_n": len(val_df),
