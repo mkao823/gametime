@@ -22,6 +22,7 @@ from gametime.pregame.baseball.features import (
 )
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
 from gametime.pregame.baseball.models.lgbm import LgbmMember
+from gametime.pregame.baseball.models.poisson import PoissonMember, attach_poisson
 from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
@@ -110,6 +111,7 @@ def train_baseball_pregame(
     games = pd.read_parquet(games_path)
     table = build_training_table(games, form_window=form_window)
     table = attach_runs_strength(table, games, window=runs_strength_window)
+    table = attach_poisson(table, games)
     train_df, val_df, test_df = split_table_by_season(
         table,
         train_seasons=train_seasons,
@@ -136,11 +138,16 @@ def train_baseball_pregame(
     heuristic.fit(train_df)
     runs_strength = RunsStrengthMember()
     runs_strength.fit(train_df)
+    poisson = PoissonMember()
+    poisson.fit(train_df)
 
-    members: list[LgbmMember | HeuristicMember | RunsStrengthMember] = [
+    members: list[
+        LgbmMember | HeuristicMember | RunsStrengthMember | PoissonMember
+    ] = [
         lgbm,
         heuristic,
         runs_strength,
+        poisson,
     ]
     val_preds: dict[str, MemberPrediction] = {}
     test_preds: dict[str, MemberPrediction] = {}

@@ -110,34 +110,26 @@ def _grid_search_target(
             best_weights = weights.copy()
             best_balance = balance
 
-    if n == 1:
-        only = {member_names[0]: 1.0}
-        pred = stacks[member_names[0]]
-        return only, float(np.mean(np.abs(pred - actual)))
-
-    if n == 2:
-        for w0 in grid:
-            w1 = 1.0 - w0
-            if w1 < -1e-9:
-                continue
-            weights = {member_names[0]: float(w0), member_names[1]: float(w1)}
-            pred = weights[member_names[0]] * stacks[member_names[0]] + weights[
-                member_names[1]
-            ] * stacks[member_names[1]]
+    def _recurse(idx: int, remaining: float, partial: list[float]) -> None:
+        if idx == n - 1:
+            w_last = remaining
+            if w_last < -1e-9:
+                return
+            weights = {
+                member_names[j]: float(partial[j]) for j in range(n - 1)
+            }
+            weights[member_names[n - 1]] = float(w_last)
+            pred = sum(weights[name] * stacks[name] for name in member_names)
             _consider(weights, float(np.mean(np.abs(pred - actual))))
-    else:
-        for w0 in grid:
-            for w1 in grid:
-                w2 = 1.0 - w0 - w1
-                if w2 < -1e-9:
-                    continue
-                weights = {
-                    member_names[0]: float(w0),
-                    member_names[1]: float(w1),
-                    member_names[2]: float(w2),
-                }
-                pred = sum(weights[name] * stacks[name] for name in member_names)
-                _consider(weights, float(np.mean(np.abs(pred - actual))))
+            return
+        for w in grid:
+            if w > remaining + 1e-9:
+                continue
+            partial.append(float(w))
+            _recurse(idx + 1, remaining - w, partial)
+            partial.pop()
+
+    _recurse(0, 1.0, [])
 
     if best_weights is None:
         equal = {name: 1.0 / len(member_names) for name in member_names}

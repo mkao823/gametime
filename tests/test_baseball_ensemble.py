@@ -12,6 +12,7 @@ from gametime.pregame.baseball.ensemble import (
     fit_weights,
     fit_weights_with_metrics,
 )
+from gametime.pregame.baseball.models.poisson import attach_poisson
 from gametime.pregame.baseball.models.runs_strength import attach_runs_strength
 from gametime.pregame.baseball.prediction import MemberPrediction
 
@@ -164,6 +165,59 @@ def test_grid_search_tie_break_prefers_balanced_weights():
     assert mae == pytest.approx(0.0)
     assert max(weights.values()) < 0.5
     assert min(weights.values()) >= 0.05 - 1e-9
+
+
+def test_grid_search_respects_min_member_weight_four_members():
+    """Four-member grid: each active member gets at least min_member_weight."""
+    min_w = 0.05
+    actual_total = np.array([9.0, 9.0, 9.0, 9.0])
+    actual_margin = np.array([1.0, -1.0, 1.0, -1.0])
+    members = [
+        _member("a", [9.0, 9.0, 9.0, 9.0], [1.0, -1.0, 1.0, -1.0]),
+        _member("b", [10.0, 8.0, 10.0, 8.0], [2.0, -2.0, 2.0, -2.0]),
+        _member("c", [8.0, 10.0, 8.0, 10.0], [0.5, -0.5, 0.5, -0.5]),
+        _member("d", [9.5, 8.5, 9.5, 8.5], [1.5, -1.5, 1.5, -1.5]),
+    ]
+    weights_total, weights_margin = fit_weights(
+        members,
+        actual_total,
+        actual_margin,
+        step=0.05,
+        min_member_weight=min_w,
+    )
+    for name in ("a", "b", "c", "d"):
+        assert weights_total[name] >= min_w - 1e-9
+        assert weights_margin[name] >= min_w - 1e-9
+    assert sum(weights_total.values()) == pytest.approx(1.0, abs=1e-6)
+    assert sum(weights_margin.values()) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_attach_poisson_excludes_current_game_runs():
+    """Poisson rates for game g must use only prior games (shifted expanding mean)."""
+    dates = pd.date_range("2024-04-01", periods=6, freq="D")
+    games = pd.DataFrame(
+        {
+            "game_id": [f"g{i}" for i in range(6)],
+            "game_date": dates,
+            "home_team": ["AAA"] * 6,
+            "away_team": ["BBB"] * 6,
+            "home_runs": [1, 2, 3, 4, 5, 999],
+            "away_runs": [0, 0, 0, 0, 0, 0],
+            "margin_final": [1, 2, 3, 4, 5, 999],
+            "season_start_year": [2024] * 6,
+            "seasontype": ["rg"] * 6,
+        }
+    )
+    table = games[["game_id", "season_start_year"]].copy()
+    enriched = attach_poisson(table, games)
+
+    first = enriched.loc[enriched["game_id"] == "g0", "home_poisson_attack"].iloc[0]
+    last = enriched.loc[enriched["game_id"] == "g5", "home_poisson_attack"].iloc[0]
+
+    assert first == pytest.approx(4.5)  # LEAGUE_RPG fill for no prior games
+    assert last == pytest.approx(3.0)  # mean of prior home_runs 1..5 only
+    assert last != pytest.approx(999.0)
+    assert last < 100.0
 
 
 def test_attach_runs_strength_excludes_current_game_runs():
