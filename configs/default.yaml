@@ -1,0 +1,87 @@
+# NBA in-game totals — playoff-focused live use, regular-season training
+
+sport: nba
+
+data:
+  source: nbastats
+  # Train/eval bulk data: regular seasons + prior playoffs
+  seasons: [2021, 2022, 2023, 2024]
+  seasontype: both          # rg | po | both
+  raw_dir: data/raw
+  processed_dir: data/processed
+  # 2024-25 RS: classic nbastats stops at 2024; use v3 archive named nbastatsv3_2025.csv
+  supplemental_pbp:
+    - source: nbastatsv3
+      seasons: [2025]
+      seasontype: rg
+
+snapshots:
+  interval_seconds: 60
+  regulation_seconds: 2880
+
+features:
+  rolling_window_seconds: 300
+  long_window_seconds: 600   # pace_10min lookback
+
+train:
+  model_dir: models
+  # Fit on regular season (stable volume); validate on RS before touching playoffs
+  train_seasontypes: [rg]
+  train_seasons: [2021, 2022, 2023]
+  val_season: 2024
+  val_season_fallback: 2023
+  val_seasontype: rg
+  # Playoff test: 2024=po_2024 archive; 2025=00425… ids (2024-25 playoffs, e.g. OKC@SAS)
+  test_seasons: [2024, 2025]
+  test_seasontype: po
+
+evaluate:
+  report_dir: reports/eval
+  test_seasontype: po
+  test_seasons: [2024, 2025]
+  by_phase: true
+  by_season: true
+
+signals:
+  report_dir: reports/signals
+  peak_window_polls: 5       # ~5 min at 60s grid when applied to snapshots
+  min_peak_delta: 3.0        # pts above rolling median to call a peak
+  sporadic_pace_std: 8.0     # feat_pace_recent std threshold (snapshot scale)
+
+live:
+  log_dir: data/live_predictions
+  analysis_dir: reports/live_analysis
+  json_report_dir: reports/live
+  poll_interval_seconds: 30
+  kalshi:
+    api_base: https://api.elections.kalshi.com/trade-api/v2
+    cache_seconds: 25
+  confidence:
+    enabled: true
+  # Crunch = last ~3 min of regulation (pct_complete >= 0.9375)
+    crunch_pct: 0.9375
+    crunch_mae: 3.7   # playoff holdout MAE in crunch phase; half-width of total band
+  prior:
+    enabled: true            # start at pregame total/margin, blend → live LGB by decay_pct
+    prefer_variant: pure     # log lookup variant before live fallback
+    decay_pct: 0.5           # prior weight → 0 at this pct_complete (halftime)
+
+pregame:
+  model_dir: models/pregame
+  team_games_path: data/processed/team_games.parquet
+  report_path: reports/eval/pregame_summary.json
+  form_window: 10
+  vegas_weight: 0.15         # market nudge only (0.85 model); use --with-vegas to apply
+  elo:
+    base_rating: 1500.0
+    k: 20.0
+    home_court_adv: 65.0
+    season_regression: 0.25
+  join_in_game: true
+  league_total_fallback: 225.8
+  blowout_margin_pts: 10.0
+  po_finetune_rounds: 75
+  calibration_blowout_gate: 0.35
+  include_po_in_train: true   # add historical PO games to pregame train set
+  band_target_coverage: 0.80  # conformal scale fit on PO val slice (see margin_band.json)
+  # Future features documented in src/gametime/pregame/team_context.py FEATURE_ROADMAP

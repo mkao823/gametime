@@ -1,0 +1,24 @@
+# MLB pregame only — winner + total runs (no in-game live model)
+
+sport: mlb
+
+data:
+  seasons: [2021, 2022, 2023, 2024]
+  games_path: data/mlb/processed/games.parquet
+
+train:
+  model_dir: models/mlb/pregame
+  train_seasontypes: [rg]
+  train_seasons: [2021, 2022, 2023]
+  val_season: 2024
+  val_season_fallback: 2023
+  val_seasontype: rg
+  test_seasons: [2024]
+  test_seasontype: rg
+
+pregame:
+  model_dir: models/mlb/pregame
+  games_path: data/mlb/processed/games.parquet
+  report_path: reports/mlb/eval/pregame_summary.json
+  form_window: 10
+  league_total_fallback: 8.5

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gametime"
+version = "0.1.0"
+description = "In-game NBA final total and team score prediction"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "lightgbm>=4.0",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.1"]
+mlb = ["pybaseball>=2.2.7"]
+
+[project.scripts]
+gametime-download = "gametime.cli:download"
+gametime-build = "gametime.cli:build_snapshots"
+gametime-train = "gametime.cli:train"
+gametime-eval = "gametime.cli:eval_cmd"
+gametime-iteration-report = "gametime.cli:iteration_report"
+gametime-live = "gametime.cli:live"
+gametime-live-prior-demo = "gametime.cli:live_prior_demo"
+gametime-analyze-live = "gametime.cli:analyze_live"
+gametime-analyze-game = "gametime.cli:analyze_game_cmd"
+gametime-backtest-signals = "gametime.cli:backtest_signals"
+gametime-pregame = "gametime.cli:pregame"
+gametime-pregame-train = "gametime.cli:pregame_train"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

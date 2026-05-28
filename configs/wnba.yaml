@@ -1,0 +1,74 @@
+# WNBA in-game totals — separate model/data from NBA
+
+sport: wnba
+
+data:
+  source: wnba_nbastats
+  seasons: [2021, 2022, 2023, 2024]
+  seasontype: both
+  raw_dir: data/wnba/raw
+  processed_dir: data/wnba/processed
+
+snapshots:
+  interval_seconds: 60
+  regulation_seconds: 2400   # 4 x 10-min quarters
+
+features:
+  rolling_window_seconds: 300
+  long_window_seconds: 600
+
+train:
+  model_dir: models/wnba
+  train_seasontypes: [rg]
+  train_seasons: [2021, 2022, 2023]
+  val_season: 2024
+  val_season_fallback: 2023
+  val_seasontype: rg
+  test_seasons: [2024]
+  test_seasontype: po
+
+evaluate:
+  report_dir: reports/wnba/eval
+  test_seasontype: po
+  test_seasons: [2024]
+  by_phase: true
+  by_season: true
+
+signals:
+  report_dir: reports/wnba/signals
+  peak_window_polls: 5
+  min_peak_delta: 3.0
+  sporadic_pace_std: 8.0
+
+live:
+  log_dir: data/wnba/live_predictions
+  analysis_dir: reports/wnba/live_analysis
+  json_report_dir: reports/wnba/live
+  poll_interval_seconds: 30
+  confidence:
+    enabled: true
+    crunch_pct: 0.9375
+    crunch_mae: 3.7
+  prior:
+    enabled: true
+    prefer_variant: pure
+    decay_pct: 0.5
+
+pregame:
+  model_dir: models/wnba/pregame
+  team_games_path: data/wnba/processed/team_games.parquet
+  report_path: reports/wnba/eval/pregame_summary.json
+  form_window: 10
+  vegas_weight: 0.15
+  elo:
+    base_rating: 1500.0
+    k: 20.0
+    home_court_adv: 45.0
+    season_regression: 0.25
+  join_in_game: true
+  league_total_fallback: 165.0
+  blowout_margin_pts: 10.0
+  po_finetune_rounds: 75
+  calibration_blowout_gate: 0.35
+  include_po_in_train: true
+  band_target_coverage: 0.80
