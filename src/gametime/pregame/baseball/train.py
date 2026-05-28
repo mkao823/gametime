@@ -26,8 +26,51 @@ from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
 )
-from gametime.pregame.baseball.prediction import MemberPrediction
+from gametime.pregame.baseball.prediction import (
+    EnsemblePrediction,
+    MemberPrediction,
+)
 from gametime.train.common import split_table_by_season
+
+
+def _build_predictions_export_frame(
+    df: pd.DataFrame,
+    member_preds: dict[str, MemberPrediction],
+    ensemble_equal: EnsemblePrediction,
+    ensemble_weighted: EnsemblePrediction,
+) -> pd.DataFrame:
+    """One row per game with actuals, member preds, and ensemble outputs."""
+    out = pd.DataFrame(
+        {
+            "game_id": df["game_id"].values,
+            "season_start_year": df["season_start_year"].values,
+            "actual_total": df[TARGET_TOTAL].to_numpy(),
+            "actual_margin": df[TARGET_MARGIN].to_numpy(),
+        }
+    )
+    for name, pred in member_preds.items():
+        out[f"{name}_total"] = pred.total
+        out[f"{name}_margin"] = pred.margin
+    out["ensemble_equal_total"] = ensemble_equal.total
+    out["ensemble_equal_margin"] = ensemble_equal.margin
+    out["ensemble_total"] = ensemble_weighted.total
+    out["ensemble_margin"] = ensemble_weighted.margin
+    return out
+
+
+def export_split_predictions(
+    *,
+    df: pd.DataFrame,
+    member_preds: dict[str, MemberPrediction],
+    ensemble_equal: EnsemblePrediction,
+    ensemble_weighted: EnsemblePrediction,
+    path: Path,
+) -> None:
+    frame = _build_predictions_export_frame(
+        df, member_preds, ensemble_equal, ensemble_weighted
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(path, index=False)
 
 
 def _metrics(pred_total: np.ndarray, pred_margin: np.ndarray, df: pd.DataFrame) -> dict[str, float]:
@@ -60,6 +103,8 @@ def train_baseball_pregame(
     runs_strength_window: int = 30,
     tune_ensemble_weights: bool = True,
     weight_grid_step: float = 0.1,
+    export_predictions: bool = True,
+    eval_dir: Path | None = None,
 ) -> dict[str, Any]:
     games = pd.read_parquet(games_path)
     table = build_training_table(games, form_window=form_window)
@@ -189,4 +234,25 @@ def train_baseball_pregame(
     with (model_dir / "meta.json").open("w") as f:
         json.dump(meta, f, indent=2)
     print(f"[mlb-pregame] Wrote {report_path}")
+
+    if export_predictions:
+        out_dir = eval_dir if eval_dir is not None else report_path.parent
+        val_path = out_dir / "val_predictions.parquet"
+        test_path = out_dir / "test_predictions.parquet"
+        export_split_predictions(
+            df=val_df,
+            member_preds=val_preds,
+            ensemble_equal=ensemble_equal_val,
+            ensemble_weighted=ensemble_weighted_val,
+            path=val_path,
+        )
+        export_split_predictions(
+            df=test_df,
+            member_preds=test_preds,
+            ensemble_equal=ensemble_equal_test,
+            ensemble_weighted=ensemble_weighted_test,
+            path=test_path,
+        )
+        print(f"[mlb-pregame] Wrote {val_path} and {test_path}")
+
     return meta

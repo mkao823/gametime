@@ -321,6 +321,10 @@ def pregame_train(argv=None):
             tune_ensemble_weights=bool(
                 pg.get("ensemble", {}).get("tune_weights", True)
             ),
+            export_predictions=bool(
+                pg.get("ensemble", {}).get("export_predictions", True)
+            ),
+            eval_dir=root / Path(pg.get("report_path", "reports/mlb/eval/pregame_summary.json")).parent,
         )
         print(json.dumps(meta, indent=2, default=str))
         return
