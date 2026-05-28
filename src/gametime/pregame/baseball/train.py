@@ -262,6 +262,12 @@ def train_baseball_pregame(
 
     meta = {
         "sport": "mlb",
+        "train_seasons": train_seasons,
+        "val_season": val_season,
+        "val_seasontype": val_seasontype,
+        "test_seasons": test_seasons,
+        "test_seasontype": test_seasontype,
+        "weight_fit_split": "val",
         "form_window": form_window,
         "runs_strength_window": runs_strength_window,
         "feature_columns": FEATURE_COLUMNS,

@@ -13,7 +13,7 @@ train:
   val_season: 2024
   val_season_fallback: 2023
   val_seasontype: rg
-  test_seasons: [2024]
+  test_seasons: [2025]
   test_seasontype: rg
 
 pregame:
