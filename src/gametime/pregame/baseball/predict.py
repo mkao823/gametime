@@ -16,6 +16,11 @@ from gametime.pregame.baseball.features import (
 )
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
 from gametime.pregame.baseball.models.lgbm import LgbmMember
+from gametime.pregame.baseball.models.poisson import (
+    PoissonMember,
+    _latest_poisson_rates,
+    attach_poisson,
+)
 from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
@@ -107,11 +112,13 @@ class BaseballPregamePredictor:
         self.lgbm = LgbmMember.load(model_dir)
         self.heuristic = HeuristicMember()
         self.runs_strength = RunsStrengthMember()
+        self.poisson = PoissonMember()
 
         table = build_training_table(self.games, form_window=self.form_window)
         table = attach_runs_strength(
             table, self.games, window=self.runs_strength_window
         )
+        table = attach_poisson(table, self.games)
         seasontypes = train_seasontypes or ["rg"]
         train_df = table[
             table["season_start_year"].isin(train_seasons)
@@ -123,6 +130,7 @@ class BaseballPregamePredictor:
             )
         self.heuristic.fit(train_df)
         self.runs_strength.fit(train_df)
+        self.poisson.fit(train_df)
 
         self._weights_total = self.ensemble_cfg["weights"]["total"]
         self._weights_margin = self.ensemble_cfg["weights"]["margin"]
@@ -149,11 +157,13 @@ class BaseballPregamePredictor:
             runs_strength_window=self.runs_strength_window,
             is_playoff=is_playoff,
         )
+        row_df = row_df.assign(**_latest_poisson_rates(self.games, home=home, away=away))
 
         member_preds: list[MemberPrediction] = [
             self.lgbm.predict(row_df),
             self.heuristic.predict(row_df),
             self.runs_strength.predict(row_df),
+            self.poisson.predict(row_df),
         ]
         ensemble = combine(
             member_preds,

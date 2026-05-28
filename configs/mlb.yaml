@@ -28,5 +28,5 @@ pregame:
     export_predictions: true
     min_member_weight: 0.05
     grid_step: 0.05
-    members: [lgbm, heuristic, runs_strength]
+    members: [lgbm, heuristic, runs_strength, poisson]
     runs_strength_window: 30
