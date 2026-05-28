@@ -25,5 +25,6 @@ pregame:
   ensemble:
     enabled: true
     tune_weights: true
+    export_predictions: true
     members: [lgbm, heuristic, runs_strength]
     runs_strength_window: 30
