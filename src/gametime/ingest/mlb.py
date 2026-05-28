@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import re
 import time
+from datetime import date
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -66,6 +67,170 @@ def _game_id(game_date: pd.Timestamp, home: str, away: str) -> str:
     return hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
+def _seasontype_from_row(row: pd.Series) -> str:
+    if "Postseason" in row.index and bool(row.get("Postseason")):
+        return "po"
+    inn = row.get("Inn", row.get("inn"))
+    if inn is not None and not pd.isna(inn) and str(inn).strip().lower() in ("", "nan"):
+        return "po"
+    return "rg"
+
+
+def _home_away_from_row(row: pd.Series, team: str, opp: str) -> tuple[str, str]:
+    loc = str(row.get("Home_Away", row.get("home_away", "Home"))).strip().lower()
+    is_home = loc in ("home", "h")
+    if is_home:
+        return team, opp
+    return opp, team
+
+
+def infer_season_start_year(game_date: date) -> int:
+    """Map a calendar date to MLB season_start_year (same label as ingest)."""
+    return game_date.year if game_date.month >= 3 else game_date.year - 1
+
+
+def _parse_schedule_matchup(
+    row: pd.Series,
+    team: str,
+    season_start_year: int,
+) -> Optional[dict]:
+    """Schedule row → matchup metadata (includes unplayed games)."""
+    opp_col = "Opp" if "Opp" in row.index else "opp"
+    if opp_col not in row.index:
+        return None
+    opp = _norm_team(str(row[opp_col]))
+    team = _norm_team(team)
+
+    date_val = row.get("Date") or row.get("date")
+    if date_val is None or pd.isna(date_val):
+        return None
+    try:
+        game_date = _parse_game_date(date_val, season_start_year)
+    except (ValueError, pd.errors.OutOfBoundsDatetime):
+        return None
+
+    home, away = _home_away_from_row(row, team, opp)
+    seasontype = _seasontype_from_row(row)
+    gid = _game_id(game_date, home, away)
+    return {
+        "game_id": gid,
+        "game_date": game_date,
+        "home_team": home,
+        "away_team": away,
+        "season_start_year": season_start_year,
+        "seasontype": seasontype,
+    }
+
+
+def slate_from_games_parquet(
+    games: pd.DataFrame,
+    target_date: date,
+    *,
+    regular_season_only: bool = True,
+) -> list[dict[str, str]]:
+    """Matchups on target_date from processed games (completed games only)."""
+    if games.empty:
+        return []
+    df = games.copy()
+    df["game_date"] = pd.to_datetime(df["game_date"]).dt.normalize()
+    td = pd.Timestamp(target_date).normalize()
+    sub = df[df["game_date"] == td]
+    if regular_season_only:
+        sub = sub[sub["seasontype"] == "rg"]
+    if sub.empty:
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for _, row in sub.iterrows():
+        gid = str(row["game_id"])
+        if gid in seen:
+            continue
+        seen.add(gid)
+        out.append(
+            {
+                "game_id": gid,
+                "away": str(row["away_team"]),
+                "home": str(row["home_team"]),
+            }
+        )
+    out.sort(key=lambda m: (m["away"], m["home"]))
+    return out
+
+
+def fetch_slate_from_pybaseball(
+    target_date: date,
+    season_start_year: int,
+    teams: Optional[Iterable[str]] = None,
+    *,
+    regular_season_only: bool = True,
+    pause: float = 0.4,
+) -> list[dict[str, str]]:
+    """Discover matchups on a date via team schedules (includes upcoming games)."""
+    try:
+        from pybaseball import cache
+        from pybaseball import schedule_and_record
+    except ImportError as exc:
+        raise ImportError(
+            "MLB slate requires pybaseball. Install with: pip install -e '.[mlb]'"
+        ) from exc
+
+    cache.enable()
+    td = pd.Timestamp(target_date).normalize()
+    team_list = list(teams or DEFAULT_TEAMS)
+    by_id: dict[str, dict[str, str]] = {}
+
+    for team in team_list:
+        try:
+            df = schedule_and_record(season_start_year, team)
+        except Exception as exc:
+            print(f"[mlb] slate skip {team} {season_start_year}: {exc}")
+            continue
+        time.sleep(pause)
+        if df is None or df.empty:
+            continue
+        for _, row in df.iterrows():
+            parsed = _parse_schedule_matchup(row, team, season_start_year)
+            if parsed is None:
+                continue
+            if parsed["game_date"] != td:
+                continue
+            if regular_season_only and parsed["seasontype"] != "rg":
+                continue
+            gid = parsed["game_id"]
+            by_id[gid] = {
+                "game_id": gid,
+                "away": parsed["away_team"],
+                "home": parsed["home_team"],
+            }
+
+    return sorted(by_id.values(), key=lambda m: (m["away"], m["home"]))
+
+
+def slate_matchups_for_date(
+    target_date: date,
+    *,
+    season_start_year: Optional[int] = None,
+    games_path: Optional[Path] = None,
+    teams: Optional[Iterable[str]] = None,
+    regular_season_only: bool = True,
+) -> list[dict[str, str]]:
+    """Matchups for a calendar day: parquet when available, else pybaseball schedules."""
+    season = season_start_year or infer_season_start_year(target_date)
+    if games_path is not None and Path(games_path).exists():
+        games = pd.read_parquet(games_path)
+        found = slate_from_games_parquet(
+            games, target_date, regular_season_only=regular_season_only
+        )
+        if found:
+            return found
+    return fetch_slate_from_pybaseball(
+        target_date,
+        season,
+        teams=teams,
+        regular_season_only=regular_season_only,
+    )
+
+
 def _parse_schedule_row(
     row: pd.Series,
     team: str,
@@ -83,13 +248,10 @@ def _parse_schedule_row(
     if pd.isna(home_runs) or pd.isna(away_runs):
         return None
 
-    loc = str(row.get("Home_Away", row.get("home_away", "Home"))).strip().lower()
-    is_home = loc in ("home", "h")
-    if is_home:
-        home, away = team, opp
+    home, away = _home_away_from_row(row, team, opp)
+    if home == team:
         hr, ar = float(home_runs), float(away_runs)
     else:
-        home, away = opp, team
         hr, ar = float(away_runs), float(home_runs)
 
     date_val = row.get("Date") or row.get("date")
@@ -100,11 +262,7 @@ def _parse_schedule_row(
     except (ValueError, pd.errors.OutOfBoundsDatetime):
         return None
 
-    inn = row.get("Inn", row.get("inn"))
-    seasontype = "po" if inn is not None and str(inn).strip().lower() in ("", "nan") else "rg"
-    # Playoff games often tagged in Opp or separate — use postseason flag when present
-    if "Postseason" in row.index and bool(row.get("Postseason")):
-        seasontype = "po"
+    seasontype = _seasontype_from_row(row)
 
     gid = _game_id(game_date, home, away)
     return {

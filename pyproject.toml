@@ -34,6 +34,7 @@ gametime-analyze-game = "gametime.cli:analyze_game_cmd"
 gametime-backtest-signals = "gametime.cli:backtest_signals"
 gametime-pregame = "gametime.cli:pregame"
 gametime-pregame-train = "gametime.cli:pregame_train"
+gametime-pregame-slate = "gametime.cli:pregame_slate"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
