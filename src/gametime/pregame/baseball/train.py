@@ -22,6 +22,13 @@ from gametime.pregame.baseball.features import (
     TARGET_WINNER,
     build_training_table,
 )
+from gametime.pregame.baseball.models.elo import (
+    BaseballEloParams,
+    EloMember,
+    attach_elo,
+    fit_baseball_elo,
+    save_member_state,
+)
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
 from gametime.pregame.baseball.models.lgbm import LgbmMember
 from gametime.pregame.baseball.models.poisson import PoissonMember, attach_poisson
@@ -119,11 +126,14 @@ def train_baseball_pregame(
     stack_alpha: float = 1.0,
     export_predictions: bool = True,
     eval_dir: Path | None = None,
+    elo_params: BaseballEloParams | None = None,
 ) -> dict[str, Any]:
     games = pd.read_parquet(games_path)
     table = build_training_table(games, form_window=form_window)
     table = attach_runs_strength(table, games, window=runs_strength_window)
     table = attach_poisson(table, games)
+    elo_params = elo_params or BaseballEloParams()
+    table = attach_elo(table, games, params=elo_params)
     train_df, val_df, test_df = split_table_by_season(
         table,
         train_seasons=train_seasons,
@@ -152,14 +162,28 @@ def train_baseball_pregame(
     runs_strength.fit(train_df)
     poisson = PoissonMember()
     poisson.fit(train_df)
+    elo = EloMember(elo_params)
+    elo.fit(train_df)
+
+    train_games = games[
+        games["season_start_year"].isin(train_seasons)
+        & games["seasontype"].isin(train_seasontypes)
+    ]
+    _, elo_win_state, elo_offdef_state = fit_baseball_elo(train_games, params=elo_params)
+    save_member_state(
+        model_dir / "elo_member_state.json",
+        win_state=elo_win_state,
+        offdef_state=elo_offdef_state,
+    )
 
     members: list[
-        LgbmMember | HeuristicMember | RunsStrengthMember | PoissonMember
+        LgbmMember | HeuristicMember | RunsStrengthMember | PoissonMember | EloMember
     ] = [
         lgbm,
         heuristic,
         runs_strength,
         poisson,
+        elo,
     ]
     val_preds: dict[str, MemberPrediction] = {}
     test_preds: dict[str, MemberPrediction] = {}

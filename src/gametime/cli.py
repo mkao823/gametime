@@ -302,7 +302,16 @@ def pregame_train(argv=None):
     train_cfg = cfg["train"]
 
     if sport.family == "baseball":
+        from gametime.pregame.baseball.models.elo import BaseballEloParams
         from gametime.pregame.baseball.train import train_baseball_pregame
+
+        elo_cfg = pg.get("elo", {})
+        baseball_elo_params = BaseballEloParams(
+            k=float(elo_cfg.get("k", 4.0)),
+            home_adv_runs=float(elo_cfg.get("home_adv_runs", 0.15)),
+            season_regression=float(elo_cfg.get("season_regression", 0.25)),
+            margin_elo_scale=float(elo_cfg.get("margin_elo_scale", 50.0)),
+        )
 
         meta = train_baseball_pregame(
             games_path=root / pg.get("games_path", data_cfg.get("games_path")),
@@ -332,6 +341,7 @@ def pregame_train(argv=None):
                 pg.get("ensemble", {}).get("export_predictions", True)
             ),
             eval_dir=root / Path(pg.get("report_path", "reports/mlb/eval/pregame_summary.json")).parent,
+            elo_params=baseball_elo_params,
         )
         print(json.dumps(meta, indent=2, default=str))
         return
@@ -414,6 +424,7 @@ def pregame(argv=None):
                 file=sys.stderr,
             )
             sys.exit(2)
+        from gametime.pregame.baseball.models.elo import BaseballEloParams
         from gametime.pregame.baseball.predict import (
             BaseballPregamePredictor,
             format_baseball_prediction,
@@ -421,6 +432,13 @@ def pregame(argv=None):
 
         games_path = root / pg.get("games_path", data_cfg.get("games_path"))
         ensemble_cfg = pg.get("ensemble", {})
+        elo_cfg = pg.get("elo", {})
+        baseball_elo_params = BaseballEloParams(
+            k=float(elo_cfg.get("k", 4.0)),
+            home_adv_runs=float(elo_cfg.get("home_adv_runs", 0.15)),
+            season_regression=float(elo_cfg.get("season_regression", 0.25)),
+            margin_elo_scale=float(elo_cfg.get("margin_elo_scale", 50.0)),
+        )
         predictor = BaseballPregamePredictor(
             model_dir,
             games_path,
@@ -429,6 +447,7 @@ def pregame(argv=None):
             train_seasons=train_cfg["train_seasons"],
             train_seasontypes=train_cfg.get("train_seasontypes", ["rg"]),
             use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
+            elo_params=baseball_elo_params,
         )
         pred = predictor.predict(
             home=args.home,
