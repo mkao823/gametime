@@ -315,6 +315,9 @@ def pregame_train(argv=None):
             test_seasons=train_cfg.get("test_seasons", []),
             test_seasontype=train_cfg.get("test_seasontype", "rg"),
             form_window=int(pg.get("form_window", 10)),
+            runs_strength_window=int(
+                pg.get("ensemble", {}).get("runs_strength_window", 30)
+            ),
         )
         print(json.dumps(meta, indent=2, default=str))
         return
