@@ -321,6 +321,12 @@ def pregame_train(argv=None):
             tune_ensemble_weights=bool(
                 pg.get("ensemble", {}).get("tune_weights", True)
             ),
+            weight_grid_step=float(
+                pg.get("ensemble", {}).get("grid_step", 0.1)
+            ),
+            min_member_weight=float(
+                pg.get("ensemble", {}).get("min_member_weight", 0.05)
+            ),
             export_predictions=bool(
                 pg.get("ensemble", {}).get("export_predictions", True)
             ),

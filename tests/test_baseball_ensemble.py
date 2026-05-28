@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from gametime.pregame.baseball.ensemble import (
+    _grid_search_target,
     combine,
     combine_equal,
     fit_weights,
@@ -121,6 +122,48 @@ def test_fit_weights_with_metrics_keys():
     }
     assert metrics["n"] == 3.0
     assert metrics["grid_step"] == 0.1
+    assert metrics["min_member_weight"] == 0.05
+
+
+def test_grid_search_respects_min_member_weight_three_members():
+    """Each active member must receive at least min_member_weight on the grid."""
+    min_w = 0.05
+    actual_total = np.array([9.0, 9.0, 9.0, 9.0])
+    actual_margin = np.array([1.0, -1.0, 1.0, -1.0])
+    members = [
+        _member("a", [9.0, 9.0, 9.0, 9.0], [1.0, -1.0, 1.0, -1.0]),
+        _member("b", [10.0, 8.0, 10.0, 8.0], [2.0, -2.0, 2.0, -2.0]),
+        _member("c", [8.0, 10.0, 8.0, 10.0], [0.5, -0.5, 0.5, -0.5]),
+    ]
+    weights_total, weights_margin = fit_weights(
+        members,
+        actual_total,
+        actual_margin,
+        step=0.05,
+        min_member_weight=min_w,
+    )
+    for name in ("a", "b", "c"):
+        assert weights_total[name] >= min_w - 1e-9
+        assert weights_margin[name] >= min_w - 1e-9
+    assert sum(weights_total.values()) == pytest.approx(1.0, abs=1e-6)
+    assert sum(weights_margin.values()) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_grid_search_tie_break_prefers_balanced_weights():
+    """When MAE ties, prefer higher-entropy (more balanced) weights."""
+    actual = np.array([5.0, 5.0, 5.0])
+    stacks = {
+        "a": np.array([5.0, 5.0, 5.0]),
+        "b": np.array([5.0, 5.0, 5.0]),
+        "c": np.array([5.0, 5.0, 5.0]),
+    }
+    names = ["a", "b", "c"]
+    weights, mae = _grid_search_target(
+        stacks, names, actual, step=0.05, min_member_weight=0.05
+    )
+    assert mae == pytest.approx(0.0)
+    assert max(weights.values()) < 0.5
+    assert min(weights.values()) >= 0.05 - 1e-9
 
 
 def test_attach_runs_strength_excludes_current_game_runs():
