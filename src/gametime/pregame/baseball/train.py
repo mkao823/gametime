@@ -18,6 +18,10 @@ from gametime.pregame.baseball.features import (
 )
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
 from gametime.pregame.baseball.models.lgbm import LgbmMember
+from gametime.pregame.baseball.models.runs_strength import (
+    RunsStrengthMember,
+    attach_runs_strength,
+)
 from gametime.pregame.baseball.prediction import MemberPrediction
 from gametime.train.common import split_table_by_season
 
@@ -49,9 +53,11 @@ def train_baseball_pregame(
     test_seasons: list[int],
     test_seasontype: str,
     form_window: int = 10,
+    runs_strength_window: int = 30,
 ) -> dict[str, Any]:
     games = pd.read_parquet(games_path)
     table = build_training_table(games, form_window=form_window)
+    table = attach_runs_strength(table, games, window=runs_strength_window)
     train_df, val_df, test_df = split_table_by_season(
         table,
         train_seasons=train_seasons,
@@ -76,8 +82,14 @@ def train_baseball_pregame(
     lgbm.fit(train_df, val_df)
     heuristic = HeuristicMember()
     heuristic.fit(train_df)
+    runs_strength = RunsStrengthMember()
+    runs_strength.fit(train_df)
 
-    members: list[LgbmMember | HeuristicMember] = [lgbm, heuristic]
+    members: list[LgbmMember | HeuristicMember | RunsStrengthMember] = [
+        lgbm,
+        heuristic,
+        runs_strength,
+    ]
     val_preds: dict[str, MemberPrediction] = {}
     test_preds: dict[str, MemberPrediction] = {}
     for member in members:
@@ -93,6 +105,7 @@ def train_baseball_pregame(
     meta = {
         "sport": "mlb",
         "form_window": form_window,
+        "runs_strength_window": runs_strength_window,
         "feature_columns": FEATURE_COLUMNS,
         "train_n": len(train_df),
         "val_n": len(val_df),

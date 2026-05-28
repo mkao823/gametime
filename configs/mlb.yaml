@@ -22,3 +22,7 @@ pregame:
   report_path: reports/mlb/eval/pregame_summary.json
   form_window: 10
   league_total_fallback: 8.5
+  ensemble:
+    enabled: true
+    members: [lgbm, heuristic, runs_strength]
+    runs_strength_window: 30
