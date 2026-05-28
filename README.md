@@ -1,6 +1,6 @@
 # gametime
 
-In-game NBA **total score** prediction. Playoff-focused live use; **train on regular season**, **test on playoffs**.
+Pregame and in-game NBA **total score** prediction. 
 
 ## Playoff vs regular season
 
@@ -9,8 +9,6 @@ In-game NBA **total score** prediction. Playoff-focused live use; **train on reg
 | **Train (RS)** | 2021–2023 regular season — volume, stable pace |
 | **Val (RS)** | 2024 regular season — early stopping / tuning |
 | **Test (PO)** | 2024 playoffs — held-out eval (current slate) |
-
-You should **not** train only on playoffs (too few games). You **should** report playoff MAE separately from RS.
 
 ## Commands
 
