@@ -103,6 +103,7 @@ def train_baseball_pregame(
     runs_strength_window: int = 30,
     tune_ensemble_weights: bool = True,
     weight_grid_step: float = 0.1,
+    min_member_weight: float = 0.05,
     export_predictions: bool = True,
     eval_dir: Path | None = None,
 ) -> dict[str, Any]:
@@ -162,6 +163,7 @@ def train_baseball_pregame(
             actual_total_val,
             actual_margin_val,
             step=weight_grid_step,
+            min_member_weight=min_member_weight,
         )
         ensemble_weighted_val = combine(
             member_pred_list,
