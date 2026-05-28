@@ -9,6 +9,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from gametime.pregame.baseball.ensemble import combine_equal
 from gametime.pregame.baseball.features import (
     FEATURE_COLUMNS,
     TARGET_MARGIN,
@@ -16,6 +17,8 @@ from gametime.pregame.baseball.features import (
     TARGET_WINNER,
     build_training_table,
 )
+from gametime.pregame.baseball.models.heuristic import HeuristicMember
+from gametime.pregame.baseball.prediction import MemberPrediction
 from gametime.train.common import lgb_binary_params, lgb_regression_params, split_table_by_season
 
 
@@ -122,6 +125,16 @@ def train_baseball_pregame(
     pred_total_test = boost_total.predict(test_df[FEATURE_COLUMNS])
     pred_margin_test = boost_margin.predict(test_df[FEATURE_COLUMNS])
 
+    heuristic = HeuristicMember()
+    heuristic.fit(train_df)
+    heuristic_val = heuristic.predict(val_df)
+    heuristic_test = heuristic.predict(test_df)
+
+    lgbm_val = MemberPrediction(member="lgbm", total=pred_total_val, margin=pred_margin_val)
+    lgbm_test = MemberPrediction(member="lgbm", total=pred_total_test, margin=pred_margin_test)
+    ensemble_equal_val = combine_equal([lgbm_val, heuristic_val])
+    ensemble_equal_test = combine_equal([lgbm_test, heuristic_test])
+
     meta = {
         "sport": "mlb",
         "form_window": form_window,
@@ -131,6 +144,20 @@ def train_baseball_pregame(
         "test_n": len(test_df),
         "val": _metrics(pred_total_val, pred_margin_val, val_df),
         "test": _metrics(pred_total_test, pred_margin_test, test_df),
+        "members": {
+            "lgbm": {
+                "val": _metrics(pred_total_val, pred_margin_val, val_df),
+                "test": _metrics(pred_total_test, pred_margin_test, test_df),
+            },
+            "heuristic": {
+                "val": _metrics(heuristic_val.total, heuristic_val.margin, val_df),
+                "test": _metrics(heuristic_test.total, heuristic_test.margin, test_df),
+            },
+        },
+        "ensemble_equal": {
+            "val": _metrics(ensemble_equal_val.total, ensemble_equal_val.margin, val_df),
+            "test": _metrics(ensemble_equal_test.total, ensemble_equal_test.margin, test_df),
+        },
         "winner_val_acc_direct": float(
             np.mean((boost_winner.predict(val_df[FEATURE_COLUMNS]) >= 0.5) == val_df[TARGET_WINNER])
         )
