@@ -29,7 +29,7 @@ pregame:
   ensemble:
     enabled: true
     tune_weights: true
-    use_stacking: false
+    use_stacking: true
     stack_alpha: 1.0
     export_predictions: true
     min_member_weight: 0.05

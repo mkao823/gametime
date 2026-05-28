@@ -48,6 +48,19 @@ Member list in config must match `pregame.ensemble.members` (six members above).
 
 **Eval splits:** `train.val_season` (default 2024 RS) is used to tune ensemble weights and the Ridge stacker; `train.test_seasons` (default `[2025]` RS) is report-only holdout. After changing either season in `configs/mlb.yaml`, re-run `gametime-pregame-train` and check `reports/mlb/eval/pregame_summary.json` (`val_season`, `test_seasons`, and per-split metrics). See [W6-eval](mlb_ensemble_roadmap.md#w6-eval--holdout-splits-recommended) in the ensemble roadmap.
 
+## Blend mode
+
+`pregame.ensemble.use_stacking` selects how member predictions are combined at inference:
+
+| Mode | Config | Behavior |
+|------|--------|----------|
+| **Linear** (weighted average) | `use_stacking: false` | Uses `weights` in `ensemble.json` |
+| **Stacked** (Ridge meta-learner) | `use_stacking: true` | Uses `stacker` in `ensemble.json` (fit on val only) |
+
+Production default is **stacked** — on 2025 test holdout, `ensemble_stacked` beats linear on total MAE (~3.599 vs ~3.603) but loses on winner% (~54.0% vs ~55.4%). Set `use_stacking: false` to revert to linear weights if product prefers winner hit rate over total runs accuracy.
+
+Both modes require the same `ensemble.json` artifact from `gametime-pregame-train`; the stacker block is always written at train time.
+
 ## Single game
 
 ```bash
