@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from gametime.pregame.baseball.ensemble import combine
+from gametime.pregame.baseball.ensemble import combine, stack_predict
 from gametime.pregame.baseball.features import (
     build_inference_row,
     build_training_table,
@@ -91,6 +91,7 @@ class BaseballPregamePredictor:
         runs_strength_window: int = 30,
         train_seasons: list[int],
         train_seasontypes: list[str] | None = None,
+        use_stacking: bool = False,
     ) -> None:
         model_dir = Path(model_dir)
         self.model_dir = model_dir
@@ -132,6 +133,8 @@ class BaseballPregamePredictor:
         self.runs_strength.fit(train_df)
         self.poisson.fit(train_df)
 
+        self._use_stacking = use_stacking
+        self._stacker = self.ensemble_cfg.get("stacker")
         self._weights_total = self.ensemble_cfg["weights"]["total"]
         self._weights_margin = self.ensemble_cfg["weights"]["margin"]
         self._winner_mode = self.ensemble_cfg.get("winner_mode", "sign_margin")
@@ -165,11 +168,18 @@ class BaseballPregamePredictor:
             self.runs_strength.predict(row_df),
             self.poisson.predict(row_df),
         ]
-        ensemble = combine(
-            member_preds,
-            weights_total=self._weights_total,
-            weights_margin=self._weights_margin,
-        )
+        if self._use_stacking:
+            if not self._stacker:
+                raise ValueError(
+                    "use_stacking is enabled but ensemble.json has no stacker artifact"
+                )
+            ensemble = stack_predict(member_preds, self._stacker)
+        else:
+            ensemble = combine(
+                member_preds,
+                weights_total=self._weights_total,
+                weights_margin=self._weights_margin,
+            )
         total = float(ensemble.total[0])
         margin = float(ensemble.margin[0])
 
