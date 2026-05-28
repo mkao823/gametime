@@ -5,6 +5,10 @@ sport: mlb
 data:
   seasons: [2021, 2022, 2023, 2024, 2025, 2026]
   games_path: data/mlb/processed/games.parquet
+  # M1 starting pitcher sidecar (MLB Stats API; 2024+). Run gametime-download to refresh.
+  pitcher_games_path: data/mlb/processed/pitcher_games.parquet
+  pitcher_min_season: 2024
+  refresh_pitcher_games: false
 
 train:
   model_dir: models/mlb/pregame
@@ -30,7 +34,7 @@ pregame:
     export_predictions: true
     min_member_weight: 0.05
     grid_step: 0.05
-    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, elo]
+    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, elo]
     runs_strength_window: 30
   elo:
     k: 4

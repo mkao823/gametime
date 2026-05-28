@@ -37,11 +37,30 @@ def run_download(cfg: dict, root: Path) -> Path:
 
         data_cfg = cfg["data"]
         out = resolve_path(root, data_cfg.get("games_path", "data/mlb/processed/games.parquet"))
-        return download_mlb_games(
+        download_mlb_games(
             out,
             seasons=[int(s) for s in data_cfg["seasons"]],
             teams=list(sport.mlb_teams) if sport.mlb_teams else None,
         )
+        pitcher_out = resolve_path(
+            root,
+            data_cfg.get(
+                "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+            ),
+        )
+        if data_cfg.get("refresh_pitcher_games", False) or not pitcher_out.exists():
+            from gametime.ingest.mlb_pitchers import download_pitcher_games
+
+            cache_dir = resolve_path(
+                root, data_cfg.get("pitcher_cache_dir", "data/mlb/raw/pitcher_boxscores")
+            )
+            download_pitcher_games(
+                out,
+                pitcher_out,
+                min_season=int(data_cfg.get("pitcher_min_season", 2024)),
+                cache_dir=cache_dir,
+            )
+        return out
 
     data_cfg = cfg["data"]
     raw_dir = resolve_path(root, data_cfg["raw_dir"])

@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from gametime.pregame.baseball.features import LEAGUE_RPG
+from gametime.pregame.baseball.features import LEAGUE_FIP, LEAGUE_RPG
 from gametime.pregame.baseball.ensemble import (
     _grid_search_target,
     combine,
@@ -19,6 +19,8 @@ from gametime.pregame.baseball.ensemble import (
 from gametime.pregame.baseball.models.elo import attach_elo, fit_baseball_elo
 from gametime.pregame.baseball.models.poisson import attach_poisson
 from gametime.pregame.baseball.models.pythagorean import attach_pythagorean
+from gametime.pregame.baseball.features import build_training_table
+from gametime.pregame.baseball.models.pitcher import attach_pitcher
 from gametime.pregame.baseball.models.runs_strength import attach_runs_strength
 from gametime.pregame.baseball.prediction import MemberPrediction
 
@@ -394,6 +396,91 @@ def test_attach_pythagorean_excludes_current_game_runs():
     assert last < 100.0
 
 
+def test_grid_search_respects_min_member_weight_seven_members():
+    """Seven-member grid: each active member gets at least min_member_weight."""
+    min_w = 0.05
+    actual_total = np.array([9.0, 9.0, 9.0, 9.0])
+    actual_margin = np.array([1.0, -1.0, 1.0, -1.0])
+    members = [
+        _member("a", [9.0, 9.0, 9.0, 9.0], [1.0, -1.0, 1.0, -1.0]),
+        _member("b", [10.0, 8.0, 10.0, 8.0], [2.0, -2.0, 2.0, -2.0]),
+        _member("c", [8.0, 10.0, 8.0, 10.0], [0.5, -0.5, 0.5, -0.5]),
+        _member("d", [9.5, 8.5, 9.5, 8.5], [1.5, -1.5, 1.5, -1.5]),
+        _member("e", [9.2, 8.8, 9.2, 8.8], [1.2, -1.2, 1.2, -1.2]),
+        _member("f", [9.1, 8.9, 9.1, 8.9], [0.8, -0.8, 0.8, -0.8]),
+        _member("g", [9.3, 8.7, 9.3, 8.7], [1.1, -1.1, 1.1, -1.1]),
+    ]
+    weights_total, weights_margin = fit_weights(
+        members,
+        actual_total,
+        actual_margin,
+        step=0.05,
+        min_member_weight=min_w,
+    )
+    for name in ("a", "b", "c", "d", "e", "f", "g"):
+        assert weights_total[name] >= min_w - 1e-9
+        assert weights_margin[name] >= min_w - 1e-9
+    assert sum(weights_total.values()) == pytest.approx(1.0, abs=1e-6)
+    assert sum(weights_margin.values()) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_attach_pitcher_missing_sidecar_uses_league_fallback():
+    dates = pd.date_range("2024-04-01", periods=3, freq="D")
+    games = pd.DataFrame(
+        {
+            "game_id": [f"g{i}" for i in range(3)],
+            "game_date": dates,
+            "home_team": ["AAA"] * 3,
+            "away_team": ["BBB"] * 3,
+            "home_runs": [4, 5, 6],
+            "away_runs": [3, 2, 1],
+            "margin_final": [1, 3, 5],
+            "season_start_year": [2024] * 3,
+            "seasontype": ["rg"] * 3,
+        }
+    )
+    table = build_training_table(games)
+    enriched = attach_pitcher(table, pd.DataFrame())
+    assert (enriched["has_starting_pitcher"] == 0).all()
+    assert enriched.loc[0, "home_sp_fip"] == pytest.approx(LEAGUE_FIP)
+    assert enriched.loc[0, "sp_fip_diff"] == pytest.approx(0.0)
+
+
+def test_attach_pitcher_prior_fip_not_from_current_game_line():
+    """Sidecar FIP for g1 must match pre-stored prior, not post-game disaster."""
+    dates = pd.date_range("2024-04-01", periods=2, freq="D")
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "game_date": dates,
+            "home_team": ["AAA", "AAA"],
+            "away_team": ["BBB", "BBB"],
+            "home_runs": [3, 3],
+            "away_runs": [2, 2],
+            "margin_final": [1, 1],
+            "season_start_year": [2024, 2024],
+            "seasontype": ["rg", "rg"],
+        }
+    )
+    pitcher_games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "home_sp_id": [100, 100],
+            "away_sp_id": [200, 200],
+            "home_sp_fip": [4.2, 3.8],
+            "away_sp_fip": [4.0, 4.0],
+            "home_sp_rest_days": [5.0, 4.0],
+            "away_sp_rest_days": [5.0, 5.0],
+            "has_starting_pitcher": [1, 1],
+        }
+    )
+    table = build_training_table(games)
+    enriched = attach_pitcher(table, pitcher_games)
+    g1_home_fip = enriched.loc[enriched["game_id"] == "g1", "home_sp_fip"].iloc[0]
+    assert g1_home_fip == pytest.approx(3.8)
+    assert g1_home_fip != pytest.approx(9.99)
+
+
 def test_attach_runs_strength_excludes_current_game_runs():
     """Strength for game g must use only prior games (shifted rolling)."""
     dates = pd.date_range("2024-04-01", periods=6, freq="D")
@@ -420,3 +507,18 @@ def test_attach_runs_strength_excludes_current_game_runs():
     assert last == pytest.approx(3.0)  # mean of prior home_runs 1..5 only
     assert last != pytest.approx(999.0)
     assert last < 100.0
+
+
+def test_attach_park_excludes_current_game_total():
+    dates = pd.date_range("2024-04-01", periods=6, freq="D")
+    totals = [8.0, 8.0, 8.0, 8.0, 8.0, 50.0]
+    games = pd.DataFrame({"game_id": [f"g{i}" for i in range(6)], "game_date": dates, "home_team": ["AAA"]*6, "away_team": ["BBB"]*6, "home_runs": [t/2 for t in totals], "away_runs": [t/2 for t in totals], "total_final": totals, "margin_final": [1.0]*6, "season_start_year": [2024]*6, "seasontype": ["rg"]*6})
+    enriched = attach_park(games[["game_id","home_team","season_start_year"]], games, pd.DataFrame())
+    assert enriched.loc[enriched["game_id"]=="g5","home_park_factor"].iloc[0] == pytest.approx(1.0, rel=0.05)
+
+def test_attach_park_static_fallback_for_inference():
+    dates = pd.date_range("2024-04-01", periods=1, freq="D")
+    games = pd.DataFrame({"game_id":["g0"],"game_date":dates,"home_team":["COL"],"away_team":["BBB"],"home_runs":[6],"away_runs":[4],"total_final":[10.0],"margin_final":[2],"season_start_year":[2024],"seasontype":["rg"]})
+    static = pd.DataFrame({"home_team":["COL"],"park_factor_runs":[1.15],"park_factor_hr":[np.nan]})
+    enriched = attach_park(build_training_table(games), games, static)
+    assert enriched.loc[0,"home_park_factor"] == pytest.approx(1.15)
