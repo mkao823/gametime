@@ -20,6 +20,7 @@ from gametime.pregame.baseball.models.elo import (
     _latest_elo_columns,
     attach_elo,
 )
+from gametime.pregame.baseball.models.h2h import H2HMember, attach_h2h, latest_h2h_columns
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
 from gametime.pregame.baseball.models.lgbm import LgbmMember
 from gametime.pregame.baseball.models.poisson import (
@@ -118,6 +119,9 @@ class BaseballPregamePredictor:
         elo_params: BaseballEloParams | None = None,
         pitcher_games_path: str | Path | None = None,
         park_factors_path: str | Path | None = None,
+        league_total_fallback: float = 8.5,
+        h2h_window: int = 10,
+        h2h_shrink_k: float = 8.0,
     ) -> None:
         model_dir = Path(model_dir)
         self.model_dir = model_dir
@@ -145,6 +149,9 @@ class BaseballPregamePredictor:
         self.park_factor = ParkFactorMember()
         self.elo_params = elo_params or BaseballEloParams()
         self.elo = EloMember(self.elo_params)
+        self.h2h = H2HMember(league_total_fallback=league_total_fallback)
+        self._h2h_window = h2h_window
+        self._h2h_shrink_k = h2h_shrink_k
         self._pitcher_games = load_pitcher_games(
             Path(pitcher_games_path) if pitcher_games_path else None
         )
@@ -161,6 +168,9 @@ class BaseballPregamePredictor:
         table = attach_poisson(table, self.games)
         table = attach_pythagorean(table, self.games)
         table = attach_elo(table, self.games, params=self.elo_params)
+        table = attach_h2h(
+            table, self.games, window=self._h2h_window, shrink_k=self._h2h_shrink_k
+        )
         seasontypes = train_seasontypes or ["rg"]
         train_df = table[
             table["season_start_year"].isin(train_seasons)
@@ -177,6 +187,7 @@ class BaseballPregamePredictor:
         self.pitcher.fit(train_df)
         self.park_factor.fit(train_df)
         self.elo.fit(train_df)
+        self.h2h.fit(train_df)
 
         self._use_stacking = use_stacking
         self._stacker = self.ensemble_cfg.get("stacker")
@@ -225,6 +236,15 @@ class BaseballPregamePredictor:
         row_df = row_df.assign(
             **latest_park_columns(home=home, park_factors=self._park_factors)
         )
+        row_df = row_df.assign(
+            **latest_h2h_columns(
+                self.games,
+                home=home,
+                away=away,
+                window=self._h2h_window,
+                shrink_k=self._h2h_shrink_k,
+            )
+        )
 
         member_preds: list[MemberPrediction] = [
             self.lgbm.predict(row_df),
@@ -235,6 +255,7 @@ class BaseballPregamePredictor:
             self.pitcher.predict(row_df),
             self.park_factor.predict(row_df),
             self.elo.predict(row_df),
+            self.h2h.predict(row_df),
         ]
         if self._use_stacking:
             if not self._stacker:

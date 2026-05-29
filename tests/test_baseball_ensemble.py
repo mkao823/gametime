@@ -17,6 +17,7 @@ from gametime.pregame.baseball.ensemble import (
     stack_predict,
 )
 from gametime.pregame.baseball.models.elo import attach_elo, fit_baseball_elo
+from gametime.pregame.baseball.models.h2h import attach_h2h
 from gametime.pregame.baseball.models.poisson import attach_poisson
 from gametime.pregame.baseball.models.pythagorean import attach_pythagorean
 from gametime.pregame.baseball.features import build_training_table
@@ -623,3 +624,28 @@ def test_attach_runs_strength_excludes_current_game_runs():
     assert last == pytest.approx(3.0)  # mean of prior home_runs 1..5 only
     assert last != pytest.approx(999.0)
     assert last < 100.0
+
+
+def test_attach_h2h_excludes_current_and_future_meetings():
+    dates = pd.date_range("2024-04-01", periods=4, freq="D")
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1", "g2", "g3"],
+            "game_date": dates,
+            "home_team": ["AAA", "BBB", "AAA", "AAA"],
+            "away_team": ["BBB", "AAA", "BBB", "BBB"],
+            "home_runs": [5, 1, 999, 2],
+            "away_runs": [3, 9, 0, 1],
+            "margin_final": [2, -8, 999, 1],
+            "season_start_year": [2024] * 4,
+            "seasontype": ["rg"] * 4,
+        }
+    )
+    enriched = attach_h2h(
+        games[["game_id", "season_start_year"]], games, window=10, shrink_k=8.0
+    )
+    assert enriched.loc[enriched["game_id"] == "g0", "h2h_n_meetings"].iloc[0] == 0
+    assert enriched.loc[enriched["game_id"] == "g2", "h2h_n_meetings"].iloc[0] == 2
+    assert enriched.loc[enriched["game_id"] == "g2", "h2h_raw_margin"].iloc[0] == pytest.approx(
+        -3.0
+    )
