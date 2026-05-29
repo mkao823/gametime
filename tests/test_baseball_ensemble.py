@@ -24,6 +24,11 @@ from gametime.pregame.baseball.features import build_training_table
 from gametime.pregame.baseball.models.park_factor import attach_park
 from gametime.pregame.baseball.models.pitcher import attach_pitcher
 from gametime.pregame.baseball.models.runs_strength import attach_runs_strength
+from gametime.pregame.baseball.models.series_context import (
+    SeriesContextMember,
+    attach_series_context,
+    latest_series_context_columns,
+)
 from gametime.pregame.baseball.models.travel_rest import (
     TravelRestMember, attach_travel_rest, latest_schedule_columns,
 )
@@ -804,3 +809,114 @@ def test_weather_ingest_row_alignment_uses_game_id_keys(tmp_path):
         mlb_weather._fetch_daily_weather = orig
     assert set(weather["game_id"].astype(str)) == {"g0", "g1"}
     assert set(weather["home_team"].astype(str)) == {"SEA", "LAD"}
+
+
+def test_attach_series_context_no_leakage_prior_game():
+    """Game N series features must not use game N's own linescore."""
+    dates = pd.date_range("2024-04-01", periods=4, freq="D")
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1", "g2", "g3"],
+            "game_date": dates,
+            "home_team": ["AAA"] * 4,
+            "away_team": ["BBB"] * 4,
+            "home_runs": [5, 1, 999, 2],
+            "away_runs": [3, 9, 0, 1],
+            "margin_final": [2, -8, 999, 1],
+            "total_final": [8.0, 10.0, 999.0, 3.0],
+            "season_start_year": [2024] * 4,
+            "seasontype": ["rg"] * 4,
+        }
+    )
+    enriched = attach_series_context(
+        games[["game_id", "season_start_year"]], games
+    )
+    g0 = enriched.loc[enriched["game_id"] == "g0"].iloc[0]
+    g2 = enriched.loc[enriched["game_id"] == "g2"].iloc[0]
+    assert g0["series_game_num"] == 1.0
+    assert g0["prior_game_total"] == pytest.approx(2.0 * LEAGUE_RPG)
+    assert g2["series_game_num"] == 3.0
+    assert g2["prior_game_margin"] == pytest.approx(-8.0)
+    assert g2["prior_game_total"] == pytest.approx(10.0)
+    assert g2["prior_game_margin"] != pytest.approx(999.0)
+
+
+def test_attach_series_context_series_break_resets_game_num():
+    dates = pd.to_datetime(["2024-04-01", "2024-04-02", "2024-04-05"])
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1", "g2"],
+            "game_date": dates,
+            "home_team": ["AAA", "AAA", "AAA"],
+            "away_team": ["BBB", "BBB", "BBB"],
+            "home_runs": [4, 5, 3],
+            "away_runs": [3, 2, 4],
+            "margin_final": [1, 3, -1],
+            "total_final": [7.0, 7.0, 7.0],
+            "season_start_year": [2024] * 3,
+            "seasontype": ["rg"] * 3,
+        }
+    )
+    enriched = attach_series_context(games[["game_id"]], games)
+    assert enriched.loc[enriched["game_id"] == "g2", "series_game_num"].iloc[0] == 1.0
+
+
+def test_series_context_member_predicts():
+    dates = pd.date_range("2024-04-01", periods=6, freq="D")
+    games = pd.DataFrame(
+        {
+            "game_id": [f"g{i}" for i in range(6)],
+            "game_date": dates,
+            "home_team": ["AAA"] * 6,
+            "away_team": ["BBB"] * 6,
+            "home_runs": [4, 5, 3, 6, 2, 4],
+            "away_runs": [3, 2, 4, 1, 5, 3],
+            "margin_final": [1, 3, -1, 5, -3, 1],
+            "total_final": [7.0] * 6,
+            "season_start_year": [2024] * 6,
+            "seasontype": ["rg"] * 6,
+        }
+    )
+    enriched = attach_series_context(build_training_table(games), games)
+    member = SeriesContextMember()
+    member.fit(enriched.iloc[:3])
+    pred = member.predict(enriched.iloc[3:4])
+    assert np.isfinite(pred.total[0]) and np.isfinite(pred.margin[0])
+
+
+def test_latest_series_context_columns_empty_games():
+    cols = latest_series_context_columns(pd.DataFrame(), home="NYY", away="BOS")
+    assert cols["series_game_num"] == 1.0
+    assert cols["has_series_context"] == 0.0
+
+
+def test_ensemble_twelve_member_count_from_config():
+    from pathlib import Path
+
+    import yaml
+
+    cfg = yaml.safe_load((Path("configs/mlb.yaml")).read_text())
+    members = cfg["pregame"]["ensemble"]["members"]
+    assert "series_context" in members
+    assert len(members) == 12
+
+
+def test_grid_search_respects_min_member_weight_twelve_members():
+    min_w = 0.05
+    actual_total = np.array([9.0, 9.0, 9.0, 9.0])
+    actual_margin = np.array([1.0, -1.0, 1.0, -1.0])
+    members = [
+        _member(f"m{i}", [9.0, 9.0, 9.0, 9.0], [1.0, -1.0, 1.0, -1.0])
+        for i in range(12)
+    ]
+    weights_total, weights_margin = fit_weights(
+        members,
+        actual_total,
+        actual_margin,
+        step=0.05,
+        min_member_weight=min_w,
+    )
+    for i in range(12):
+        name = f"m{i}"
+        assert weights_total[name] >= min_w - 1e-9
+        assert weights_margin[name] >= min_w - 1e-9

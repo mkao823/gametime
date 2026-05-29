@@ -49,6 +49,10 @@ from gametime.pregame.baseball.models.runs_strength import (
 from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.ingest.mlb_weather import load_weather_games
+from gametime.pregame.baseball.models.series_context import (
+    SeriesContextMember,
+    attach_series_context,
+)
 from gametime.pregame.baseball.models.travel_rest import (
     TravelRestMember,
     attach_travel_rest,
@@ -186,6 +190,7 @@ def train_baseball_pregame(
     weather_games = load_weather_games(weather_games_path)
     table = attach_weather(table, weather_games)
     table = attach_travel_rest(table, games)
+    table = attach_series_context(table, games)
     table = attach_runs_strength(table, games, window=runs_strength_window)
     table = attach_poisson(table, games)
     table = attach_pythagorean(table, games)
@@ -228,6 +233,8 @@ def train_baseball_pregame(
     park_factor.fit(train_df)
     travel_rest = TravelRestMember()
     travel_rest.fit(train_df)
+    series_context = SeriesContextMember()
+    series_context.fit(train_df)
     weather = WeatherMember()
     weather.fit(train_df)
     elo = EloMember(elo_params)
@@ -255,6 +262,7 @@ def train_baseball_pregame(
         | PitcherMember
         | ParkFactorMember
         | TravelRestMember
+        | SeriesContextMember
         | WeatherMember
         | EloMember
         | H2HMember
@@ -268,6 +276,7 @@ def train_baseball_pregame(
         park_factor,
         weather,
         travel_rest,
+        series_context,
         elo,
         h2h,
     ]
@@ -364,6 +373,16 @@ def train_baseball_pregame(
         "has_weather_frac_train": float((train_df["has_weather"] == 1).mean()) if len(train_df) else 0.0,
         "has_weather_frac_val": float((val_df["has_weather"] == 1).mean()) if len(val_df) else 0.0,
         "has_weather_frac_test": float((test_df["has_weather"] == 1).mean()) if len(test_df) else 0.0,
+        "has_series_context_frac": float((table["has_series_context"] == 1).mean()),
+        "has_series_context_frac_train": float((train_df["has_series_context"] == 1).mean())
+        if len(train_df)
+        else 0.0,
+        "has_series_context_frac_val": float((val_df["has_series_context"] == 1).mean())
+        if len(val_df)
+        else 0.0,
+        "has_series_context_frac_test": float((test_df["has_series_context"] == 1).mean())
+        if len(test_df)
+        else 0.0,
         "feature_columns": FEATURE_COLUMNS,
         "train_n": len(train_df),
         "val_n": len(val_df),
