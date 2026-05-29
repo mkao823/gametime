@@ -346,6 +346,10 @@ def pregame_train(argv=None):
             / data_cfg.get(
                 "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
             ),
+            park_factors_path=root
+            / data_cfg.get(
+                "park_factors_path", "data/mlb/processed/park_factors.parquet"
+            ),
         )
         print(json.dumps(meta, indent=2, default=str))
         return
@@ -451,6 +455,9 @@ def pregame_slate(argv=None):
     pitcher_games_path = root / data_cfg.get(
         "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
     )
+    park_factors_path = root / data_cfg.get(
+        "park_factors_path", "data/mlb/processed/park_factors.parquet"
+    )
     predictor = BaseballPregamePredictor(
         model_dir,
         games_path,
@@ -461,6 +468,7 @@ def pregame_slate(argv=None):
         use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
         elo_params=baseball_elo_params,
         pitcher_games_path=pitcher_games_path,
+        park_factors_path=park_factors_path,
     )
 
     is_playoff = not args.regular_season
@@ -569,6 +577,9 @@ def pregame(argv=None):
         pitcher_games_path = root / data_cfg.get(
             "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
         )
+        park_factors_path = root / data_cfg.get(
+            "park_factors_path", "data/mlb/processed/park_factors.parquet"
+        )
         predictor = BaseballPregamePredictor(
             model_dir,
             games_path,
@@ -579,6 +590,7 @@ def pregame(argv=None):
             use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
             elo_params=baseball_elo_params,
             pitcher_games_path=pitcher_games_path,
+            park_factors_path=park_factors_path,
         )
         pred = predictor.predict(
             home=args.home,
