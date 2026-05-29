@@ -35,7 +35,7 @@ MLB pregame predicts **total runs** and **home margin** (winner from margin sign
 | `elo` | Baseball Elo ratings |
 | `h2h` | Shrunk head-to-head history |
 
-**Backlog (roadmap):** `lineup` (W6k), optional `market` / Vegas (deferred). See [docs/mlb_ensemble_roadmap.md](docs/mlb_ensemble_roadmap.md).
+**Backlog (roadmap):** optional `market` / Vegas (deferred). See [docs/mlb_ensemble_roadmap.md](docs/mlb_ensemble_roadmap.md).
 
 ### Feature roadmap (ingest → `has_*` flags)
 
@@ -44,7 +44,7 @@ MLB pregame predicts **total runs** and **home margin** (winner from margin sign
 | M1 Starting pitcher | `pitcher` | Shipped |
 | M2 Park factors | `park_factor` | Shipped |
 | M3 Weather | `weather` | Shipped |
-| M4 Lineups | `lineup` | W6k (in progress) |
+| M4 Lineups | `lineup` | W6k |
 | M5 Historical odds | `market` member | Deferred (no `ODDS_API_KEY`) |
 
 Placeholder columns in `FEATURE_COLUMNS` (`has_lineup`, etc.) flip to `1` when ingest populates real data.

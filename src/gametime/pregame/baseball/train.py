@@ -49,6 +49,7 @@ from gametime.pregame.baseball.models.runs_strength import (
 from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.ingest.mlb_weather import load_weather_games
+from gametime.ingest.mlb_lineup import load_lineup_games
 from gametime.pregame.baseball.models.series_context import (
     SeriesContextMember,
     attach_series_context,
@@ -58,6 +59,7 @@ from gametime.pregame.baseball.models.travel_rest import (
     attach_travel_rest,
 )
 from gametime.pregame.baseball.models.weather import WeatherMember, attach_weather
+from gametime.pregame.baseball.models.lineup import LineupMember, attach_lineup
 from gametime.pregame.baseball.prediction import (
     EnsemblePrediction,
     MemberPrediction,
@@ -173,6 +175,7 @@ def train_baseball_pregame(
     pitcher_games_path: Path | None = None,
     park_factors_path: Path | None = None,
     weather_games_path: Path | None = None,
+    lineup_games_path: Path | None = None,
     league_total_fallback: float = 8.5,
     h2h_window: int = 10,
     h2h_shrink_k: float = 8.0,
@@ -189,6 +192,8 @@ def train_baseball_pregame(
     table = attach_park(table, games, park_factors)
     weather_games = load_weather_games(weather_games_path)
     table = attach_weather(table, weather_games)
+    lineup_games = load_lineup_games(lineup_games_path)
+    table = attach_lineup(table, lineup_games)
     table = attach_travel_rest(table, games)
     table = attach_series_context(table, games)
     table = attach_runs_strength(table, games, window=runs_strength_window)
@@ -237,6 +242,8 @@ def train_baseball_pregame(
     series_context.fit(train_df)
     weather = WeatherMember()
     weather.fit(train_df)
+    lineup = LineupMember()
+    lineup.fit(train_df)
     elo = EloMember(elo_params)
     elo.fit(train_df)
     h2h = H2HMember(league_total_fallback=league_total_fallback)
@@ -264,6 +271,7 @@ def train_baseball_pregame(
         | TravelRestMember
         | SeriesContextMember
         | WeatherMember
+        | LineupMember
         | EloMember
         | H2HMember
     ] = [
@@ -275,6 +283,7 @@ def train_baseball_pregame(
         pitcher,
         park_factor,
         weather,
+        lineup,
         travel_rest,
         series_context,
         elo,
@@ -373,6 +382,11 @@ def train_baseball_pregame(
         "has_weather_frac_train": float((train_df["has_weather"] == 1).mean()) if len(train_df) else 0.0,
         "has_weather_frac_val": float((val_df["has_weather"] == 1).mean()) if len(val_df) else 0.0,
         "has_weather_frac_test": float((test_df["has_weather"] == 1).mean()) if len(test_df) else 0.0,
+        "lineup_games_path": str(lineup_games_path) if lineup_games_path else None,
+        "has_lineup_frac": float((table["has_lineup"] == 1).mean()),
+        "has_lineup_frac_train": float((train_df["has_lineup"] == 1).mean()) if len(train_df) else 0.0,
+        "has_lineup_frac_val": float((val_df["has_lineup"] == 1).mean()) if len(val_df) else 0.0,
+        "has_lineup_frac_test": float((test_df["has_lineup"] == 1).mean()) if len(test_df) else 0.0,
         "has_series_context_frac": float((table["has_series_context"] == 1).mean()),
         "has_series_context_frac_train": float((train_df["has_series_context"] == 1).mean())
         if len(train_df)

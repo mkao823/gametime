@@ -33,7 +33,10 @@ from gametime.pregame.baseball.models.travel_rest import (
     TravelRestMember, attach_travel_rest, latest_schedule_columns,
 )
 from gametime.pregame.baseball.models.weather import WeatherMember, attach_weather
+from gametime.pregame.baseball.models.lineup import LineupMember, attach_lineup
 from gametime.ingest import mlb_weather
+from gametime.ingest import mlb_lineup
+from gametime.ingest.mlb_lineup import LEAGUE_WOBA
 from gametime.pregame.baseball.prediction import MemberPrediction
 
 
@@ -890,24 +893,25 @@ def test_latest_series_context_columns_empty_games():
     assert cols["has_series_context"] == 0.0
 
 
-def test_ensemble_twelve_member_count_from_config():
+def test_ensemble_thirteen_member_count_from_config():
     from pathlib import Path
 
     import yaml
 
     cfg = yaml.safe_load((Path("configs/mlb.yaml")).read_text())
     members = cfg["pregame"]["ensemble"]["members"]
+    assert "lineup" in members
     assert "series_context" in members
-    assert len(members) == 12
+    assert len(members) == 13
 
 
-def test_grid_search_respects_min_member_weight_twelve_members():
+def test_grid_search_respects_min_member_weight_thirteen_members():
     min_w = 0.05
     actual_total = np.array([9.0, 9.0, 9.0, 9.0])
     actual_margin = np.array([1.0, -1.0, 1.0, -1.0])
     members = [
         _member(f"m{i}", [9.0, 9.0, 9.0, 9.0], [1.0, -1.0, 1.0, -1.0])
-        for i in range(12)
+        for i in range(13)
     ]
     weights_total, weights_margin = fit_weights(
         members,
@@ -916,7 +920,102 @@ def test_grid_search_respects_min_member_weight_twelve_members():
         step=0.05,
         min_member_weight=min_w,
     )
-    for i in range(12):
+    for i in range(13):
         name = f"m{i}"
         assert weights_total[name] >= min_w - 1e-9
         assert weights_margin[name] >= min_w - 1e-9
+
+
+def test_attach_lineup_by_game_id():
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "game_date": pd.to_datetime(["2024-04-01", "2024-04-02"]),
+            "home_team": ["NYY", "BOS"],
+            "away_team": ["BOS", "NYY"],
+            "home_runs": [5, 4],
+            "away_runs": [3, 5],
+            "total_final": [8, 9],
+            "margin_final": [2, -1],
+            "season_start_year": [2024, 2024],
+            "seasontype": ["rg", "rg"],
+        }
+    )
+    table = build_training_table(games)
+    lineup_games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "home_lineup_woba": [0.340, 0.325],
+            "away_lineup_woba": [0.310, 0.335],
+            "lineup_platoon_diff": [0.030, -0.010],
+            "has_lineup": [1, 1],
+        }
+    )
+    enriched = attach_lineup(table, lineup_games)
+    assert enriched.loc[enriched["game_id"] == "g0", "home_lineup_woba"].iloc[0] == pytest.approx(
+        0.340
+    )
+    assert (enriched["has_lineup"] == 1).all()
+
+
+def test_attach_lineup_fallback_when_sidecar_missing():
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0"],
+            "game_date": pd.to_datetime(["2024-04-01"]),
+            "home_team": ["AAA"],
+            "away_team": ["BBB"],
+            "home_runs": [4],
+            "away_runs": [3],
+            "total_final": [7],
+            "margin_final": [1],
+            "season_start_year": [2024],
+            "seasontype": ["rg"],
+        }
+    )
+    table = build_training_table(games)
+    enriched = attach_lineup(table, pd.DataFrame())
+    row = enriched.iloc[0]
+    assert row["has_lineup"] == 0
+    assert row["home_lineup_woba"] == pytest.approx(LEAGUE_WOBA)
+    assert row["lineup_platoon_diff"] == pytest.approx(0.0)
+
+
+def test_lineup_member_predicts_with_fallback():
+    df = pd.DataFrame(
+        {
+            "home_lineup_woba": [0.340, LEAGUE_WOBA],
+            "away_lineup_woba": [0.310, LEAGUE_WOBA],
+            "lineup_platoon_diff": [0.030, 0.0],
+            "has_lineup": [1, 0],
+            "total_final": [8.5, 8.7],
+            "margin_final": [0.1, 0.0],
+        }
+    )
+    member = LineupMember()
+    member.fit(df.iloc[:1])
+    pred = member.predict(df.iloc[1:2])
+    assert np.isfinite(pred.total[0])
+    assert np.isfinite(pred.margin[0])
+
+
+def test_lineup_ingest_row_alignment_uses_game_id_keys(tmp_path):
+    dates = pd.date_range("2024-04-01", periods=8, freq="D")
+    games = pd.DataFrame(
+        {
+            "game_id": [f"g{i}" for i in range(8)],
+            "game_date": dates,
+            "home_team": ["NYY", "BOS"] * 4,
+            "away_team": ["BOS", "NYY"] * 4,
+            "home_runs": [5, 4, 6, 3, 5, 4, 7, 2],
+            "away_runs": [3, 5, 2, 4, 3, 5, 1, 6],
+            "season_start_year": [2024] * 8,
+        }
+    )
+    lineup = mlb_lineup.build_lineup_games_table(
+        games,
+        min_season=2099,
+        cache_dir=tmp_path / "lineup_cache",
+    )
+    assert set(lineup["game_id"].astype(str)) == {f"g{i}" for i in range(8)}
+    assert lineup["home_lineup_woba"].nunique() > 1

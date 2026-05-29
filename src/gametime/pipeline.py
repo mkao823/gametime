@@ -91,6 +91,29 @@ def run_download(cfg: dict, root: Path) -> Path:
                 weather_out,
                 cache_dir=weather_cache_dir,
             )
+        lineup_out = resolve_path(
+            root,
+            data_cfg.get(
+                "lineup_games_path", "data/mlb/processed/lineup_games.parquet"
+            ),
+        )
+        if data_cfg.get("refresh_lineup_games", False) or not lineup_out.exists():
+            from gametime.ingest.mlb_lineup import download_lineup_games
+
+            lineup_cache = resolve_path(
+                root, data_cfg.get("lineup_cache_dir", "data/mlb/raw/lineup_woba")
+            )
+            box_cache = resolve_path(
+                root,
+                data_cfg.get("pitcher_cache_dir", "data/mlb/raw/pitcher_boxscores"),
+            )
+            download_lineup_games(
+                out,
+                lineup_out,
+                min_season=int(data_cfg.get("lineup_min_season", 2024)),
+                cache_dir=lineup_cache,
+                boxscore_cache_dir=box_cache,
+            )
         return out
 
     data_cfg = cfg["data"]

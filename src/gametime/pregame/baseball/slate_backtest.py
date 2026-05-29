@@ -61,6 +61,16 @@ def filter_weather_games_for_history(
     return weather_games[weather_games["game_id"].astype(str).isin(ids)].copy()
 
 
+def filter_lineup_games_for_history(
+    lineup_games: Optional[pd.DataFrame],
+    games_through: pd.DataFrame,
+) -> Optional[pd.DataFrame]:
+    if lineup_games is None or lineup_games.empty:
+        return lineup_games
+    ids = set(games_through["game_id"].astype(str))
+    return lineup_games[lineup_games["game_id"].astype(str).isin(ids)].copy()
+
+
 def write_games_through(
     games: pd.DataFrame,
     slate_date: date,
@@ -157,6 +167,7 @@ def run_slate_backtest_day(
     pitcher_games_path: Optional[Path],
     park_factors_path: Optional[Path],
     weather_games_path: Optional[Path] = None,
+    lineup_games_path: Optional[Path] = None,
     league_total_fallback: float,
     h2h_window: int,
     h2h_shrink_k: float,
@@ -196,6 +207,16 @@ def run_slate_backtest_day(
             )
             wg_filtered.to_parquet(weather_through, index=False)
             weather_path = weather_through
+    lineup_path = lineup_games_path
+    if lineup_games_path is not None and Path(lineup_games_path).exists():
+        lg_full = pd.read_parquet(lineup_games_path)
+        lg_filtered = filter_lineup_games_for_history(lg_full, games_through)
+        if lg_filtered is not None and len(lg_filtered) < len(lg_full):
+            lineup_through = (
+                games_through_dir / f"lineup_games_through_{slate_date.isoformat()}.parquet"
+            )
+            lg_filtered.to_parquet(lineup_through, index=False)
+            lineup_path = lineup_through
 
     factory = predictor_factory or BaseballPregamePredictor
     predictor = factory(
@@ -210,6 +231,7 @@ def run_slate_backtest_day(
         pitcher_games_path=pitcher_path,
         park_factors_path=park_factors_path,
         weather_games_path=weather_path,
+        lineup_games_path=lineup_path,
         league_total_fallback=league_total_fallback,
         h2h_window=h2h_window,
         h2h_shrink_k=h2h_shrink_k,
@@ -285,6 +307,7 @@ def run_slate_backtest(
     pitcher_games_path: Optional[Path],
     park_factors_path: Optional[Path],
     weather_games_path: Optional[Path] = None,
+    lineup_games_path: Optional[Path] = None,
     league_total_fallback: float,
     h2h_window: int,
     h2h_shrink_k: float,
@@ -310,6 +333,7 @@ def run_slate_backtest(
             pitcher_games_path=pitcher_games_path,
             park_factors_path=park_factors_path,
             weather_games_path=weather_games_path,
+            lineup_games_path=lineup_games_path,
             league_total_fallback=league_total_fallback,
             h2h_window=h2h_window,
             h2h_shrink_k=h2h_shrink_k,

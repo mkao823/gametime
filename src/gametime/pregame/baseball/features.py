@@ -43,7 +43,10 @@ FEATURE_COLUMNS = [
     "humidity_pct",
     "is_dome",
     "has_weather",
-    # reserved for future ingest
+    # lineup sidecar (M4 / W6k)
+    "home_lineup_woba",
+    "away_lineup_woba",
+    "lineup_platoon_diff",
     "has_lineup",
     "has_starting_pitcher",
     # series context (W6o; games.parquet only)
@@ -173,7 +176,14 @@ def build_training_table(games: pd.DataFrame, *, form_window: int = 10) -> pd.Da
     ):
         if col not in table.columns:
             table[col] = default
-    table["has_lineup"] = 0
+    for col, default in (
+        ("home_lineup_woba", 0.320),
+        ("away_lineup_woba", 0.320),
+        ("lineup_platoon_diff", 0.0),
+        ("has_lineup", 0),
+    ):
+        if col not in table.columns:
+            table[col] = default
     for col in ("home_sp_fip", "away_sp_fip", "sp_fip_diff", "home_sp_rest_days", "away_sp_rest_days"):
         if col not in table.columns:
             if col == "sp_fip_diff":
@@ -288,6 +298,9 @@ def build_inference_row(
         "humidity_pct": 50.0,
         "is_dome": 0,
         "has_weather": 0,
+        "home_lineup_woba": 0.320,
+        "away_lineup_woba": 0.320,
+        "lineup_platoon_diff": 0.0,
         "has_lineup": 0,
         "home_sp_fip": LEAGUE_FIP,
         "away_sp_fip": LEAGUE_FIP,
