@@ -527,6 +527,128 @@ def pregame_slate(argv=None):
         print(f"\nLogged → {log_dir / 'pregame_predictions.parquet'}")
 
 
+def pregame_slate_backtest(argv=None):
+    from datetime import date
+
+    import pandas as pd
+
+    from gametime.pregame.baseball.models.elo import BaseballEloParams
+    from gametime.pregame.baseball.slate_backtest import (
+        default_end_date,
+        discover_slate_dates,
+        run_slate_backtest,
+        write_backtest_outputs,
+    )
+    from gametime.sports import get_sport
+
+    p = argparse.ArgumentParser(
+        description="Retro MLB pregame slate backtest (no same-day leakage)"
+    )
+    p.add_argument("--config", default="configs/mlb.yaml")
+    p.add_argument(
+        "--end-date",
+        default=None,
+        help="Last slate date YYYY-MM-DD (default: yesterday or latest in games)",
+    )
+    p.add_argument("--days", type=int, default=14, help="Lookback window in days")
+    p.add_argument("--regular-season", action="store_true", help="Regular-season games only")
+    p.add_argument(
+        "--append",
+        action="store_true",
+        help="Append only new slate dates to existing report files",
+    )
+    args = p.parse_args(argv)
+
+    root = project_root()
+    cfg = load_config(root / args.config)
+    sport = get_sport(cfg)
+    if sport.family != "baseball":
+        print("pregame-slate-backtest is only supported for MLB.", file=sys.stderr)
+        sys.exit(2)
+
+    pg = cfg.get("pregame", {})
+    data_cfg = cfg.get("data", {})
+    train_cfg = cfg.get("train", {})
+    sb_cfg = pg.get("slate_backtest", {})
+    games_path = root / pg.get("games_path", data_cfg.get("games_path"))
+    if not games_path.exists():
+        print(f"Missing games parquet: {games_path}", file=sys.stderr)
+        sys.exit(1)
+
+    games = pd.read_parquet(games_path)
+    end_date = (
+        date.fromisoformat(args.end_date) if args.end_date else default_end_date(games)
+    )
+    slate_dates = discover_slate_dates(
+        games,
+        end_date=end_date,
+        days=args.days,
+        regular_season_only=args.regular_season,
+    )
+    if not slate_dates:
+        print(
+            f"No slate dates with games in ({end_date.isoformat()} - {args.days} days, "
+            f"{end_date.isoformat()}]."
+        )
+        sys.exit(1)
+
+    report_path = root / pg.get("report_path", "reports/mlb/eval/pregame_summary.json")
+    out_dir = root / sb_cfg.get("report_dir", report_path.parent)
+
+    ensemble_cfg = pg.get("ensemble", {})
+    elo_cfg = pg.get("elo", {})
+    h2h_cfg = pg.get("h2h", {})
+    baseball_elo_params = BaseballEloParams(
+        k=float(elo_cfg.get("k", 4.0)),
+        home_adv_runs=float(elo_cfg.get("home_adv_runs", 0.15)),
+        season_regression=float(elo_cfg.get("season_regression", 0.25)),
+        margin_elo_scale=float(elo_cfg.get("margin_elo_scale", 50.0)),
+    )
+    model_dir = root / pg.get("model_dir", train_cfg["model_dir"])
+    processed_dir = root / data_cfg.get("processed_dir", "data/mlb/processed")
+    pitcher_games_path = root / data_cfg.get(
+        "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+    )
+    park_factors_path = root / data_cfg.get(
+        "park_factors_path", "data/mlb/processed/park_factors.parquet"
+    )
+    use_stacking = bool(ensemble_cfg.get("use_stacking", False))
+
+    daily_df, games_df = run_slate_backtest(
+        games,
+        slate_dates,
+        model_dir=model_dir,
+        games_through_dir=processed_dir,
+        form_window=int(pg.get("form_window", 10)),
+        runs_strength_window=int(ensemble_cfg.get("runs_strength_window", 30)),
+        train_seasons=train_cfg["train_seasons"],
+        train_seasontypes=train_cfg.get("train_seasontypes", ["rg"]),
+        use_stacking=use_stacking,
+        elo_params=baseball_elo_params,
+        pitcher_games_path=pitcher_games_path,
+        park_factors_path=park_factors_path,
+        league_total_fallback=float(pg.get("league_total_fallback", 8.5)),
+        h2h_window=int(h2h_cfg.get("meeting_window", 10)),
+        h2h_shrink_k=float(h2h_cfg.get("shrink_k", 8.0)),
+        regular_season_only=args.regular_season,
+        is_playoff=not args.regular_season,
+    )
+
+    paths = write_backtest_outputs(
+        daily_df, games_df, out_dir, append=args.append
+    )
+    blend = "stacking" if use_stacking else "linear"
+    n_games = int(daily_df["n_games"].sum()) if len(daily_df) else 0
+    print(
+        f"MLB slate backtest: {len(slate_dates)} days, {n_games} games "
+        f"({slate_dates[0].isoformat()} … {slate_dates[-1].isoformat()}), blend={blend}"
+    )
+    if len(daily_df):
+        cols = ["slate_date", "n_games", "total_mae", "margin_mae", "winner_accuracy"]
+        print(daily_df[cols].to_string(index=False))
+    print(f"\nWrote → {paths.get('daily_parquet', out_dir / 'slate_backtest_daily.parquet')}")
+
+
 def pregame(argv=None):
     from gametime.pregame.log import log_pregame_prediction, write_pregame_json
     from gametime.pregame.predict import PregamePredictor, format_prediction
@@ -771,11 +893,13 @@ def main():
         "pregame": pregame,
         "pregame-train": pregame_train,
         "pregame-slate": pregame_slate,
+        "pregame-slate-backtest": pregame_slate_backtest,
     }
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(
             "Usage: gametime <download|build|train|eval|backtest-signals|"
-            "analyze-live|analyze-game|live|pregame|pregame-train|pregame-slate>"
+            "analyze-live|analyze-game|live|pregame|pregame-train|pregame-slate|"
+            "pregame-slate-backtest>"
         )
         sys.exit(1)
     cmds[sys.argv[1]](sys.argv[2:])
