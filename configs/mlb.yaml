@@ -38,7 +38,7 @@ pregame:
     min_member_weight: 0.05
     max_member_weight: 0.45
     grid_step: 0.05
-    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, park_factor, elo, h2h]
+    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, park_factor, travel_rest, elo, h2h]
     runs_strength_window: 30
   h2h:
     meeting_window: 10

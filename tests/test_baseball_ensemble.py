@@ -24,6 +24,9 @@ from gametime.pregame.baseball.features import build_training_table
 from gametime.pregame.baseball.models.park_factor import attach_park
 from gametime.pregame.baseball.models.pitcher import attach_pitcher
 from gametime.pregame.baseball.models.runs_strength import attach_runs_strength
+from gametime.pregame.baseball.models.travel_rest import (
+    TravelRestMember, attach_travel_rest, latest_schedule_columns,
+)
 from gametime.pregame.baseball.prediction import MemberPrediction
 
 
@@ -649,3 +652,49 @@ def test_attach_h2h_excludes_current_and_future_meetings():
     assert enriched.loc[enriched["game_id"] == "g2", "h2h_raw_margin"].iloc[0] == pytest.approx(
         -3.0
     )
+
+
+def test_attach_travel_rest_no_leakage_games_last_3d():
+    dates = pd.date_range("2024-04-01", periods=6, freq="D")
+    games = pd.DataFrame({"game_id": [f"g{i}" for i in range(6)], "game_date": dates,
+        "home_team": ["AAA"]*6, "away_team": ["BBB"]*6, "home_runs": [3]*6, "away_runs": [2]*6,
+        "margin_final": [1]*6, "season_start_year": [2024]*6, "seasontype": ["rg"]*6})
+    enriched = attach_travel_rest(build_training_table(games), games)
+    assert enriched.loc[enriched["game_id"]=="g0","home_games_last_3d"].iloc[0]==0.0
+    assert enriched.loc[enriched["game_id"]=="g5","home_games_last_3d"].iloc[0]==pytest.approx(3.0)
+
+
+def test_attach_travel_rest_doubleheader_flag():
+    games = pd.DataFrame({"game_id":["dh1","dh2","solo"],
+        "game_date":pd.to_datetime(["2024-04-01","2024-04-01","2024-04-02"]),
+        "home_team":["AAA","AAA","AAA"], "away_team":["BBB","CCC","BBB"],
+        "home_runs":[4,5,3], "away_runs":[3,2,2], "margin_final":[1,3,1],
+        "season_start_year":[2024,2024,2024], "seasontype":["rg","rg","rg"]})
+    enriched = attach_travel_rest(build_training_table(games), games)
+    assert enriched.loc[enriched["game_id"]=="dh1","is_doubleheader"].iloc[0]==1
+
+
+def test_attach_travel_rest_sparse_schedule_fallback():
+    games = pd.DataFrame({"game_id":["only"], "game_date":[pd.Timestamp("2024-04-01")],
+        "home_team":["AAA"], "away_team":["BBB"], "home_runs":[4], "away_runs":[3],
+        "margin_final":[1], "season_start_year":[2024], "seasontype":["rg"]})
+    row = attach_travel_rest(build_training_table(games), games).iloc[0]
+    assert row["home_games_last_3d"]==0.0 and row["schedule_fatigue_diff"]==pytest.approx(0.0)
+
+
+def test_travel_rest_member_predicts():
+    dates = pd.date_range("2024-04-01", periods=8, freq="D")
+    games = pd.DataFrame({"game_id":[f"g{i}" for i in range(8)], "game_date":dates,
+        "home_team":["H1"]*4+["A1"]*4, "away_team":["A1"]*4+["H1"]*4,
+        "home_runs":[4,5,3,6,2,4,5,3], "away_runs":[3,2,4,1,5,3,2,4],
+        "margin_final":[1,3,-1,5,-3,1,3,-1], "total_final":[7.0]*8,
+        "season_start_year":[2024]*8, "seasontype":["rg"]*8})
+    enriched = attach_travel_rest(build_training_table(games), games)
+    member = TravelRestMember(); member.fit(enriched.iloc[:4])
+    pred = member.predict(enriched.iloc[4:5])
+    assert np.isfinite(pred.total[0]) and np.isfinite(pred.margin[0])
+
+
+def test_latest_schedule_columns_empty_games():
+    cols = latest_schedule_columns(home="SEA", away="CHW", games=pd.DataFrame())
+    assert cols["home_games_last_3d"] == 0.0

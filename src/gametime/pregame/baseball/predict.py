@@ -49,6 +49,11 @@ from gametime.pregame.baseball.models.runs_strength import (
 )
 from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
+from gametime.pregame.baseball.models.travel_rest import (
+    TravelRestMember,
+    attach_travel_rest,
+    latest_schedule_columns,
+)
 from gametime.pregame.baseball.prediction import MemberPrediction
 from gametime.pregame.predict import PregamePrediction
 
@@ -147,6 +152,7 @@ class BaseballPregamePredictor:
         self.pythagorean = PythagoreanMember()
         self.pitcher = PitcherMember()
         self.park_factor = ParkFactorMember()
+        self.travel_rest = TravelRestMember()
         self.elo_params = elo_params or BaseballEloParams()
         self.elo = EloMember(self.elo_params)
         self.h2h = H2HMember(league_total_fallback=league_total_fallback)
@@ -162,6 +168,7 @@ class BaseballPregamePredictor:
         table = build_training_table(self.games, form_window=self.form_window)
         table = attach_pitcher(table, self._pitcher_games)
         table = attach_park(table, self.games, self._park_factors)
+        table = attach_travel_rest(table, self.games)
         table = attach_runs_strength(
             table, self.games, window=self.runs_strength_window
         )
@@ -186,6 +193,7 @@ class BaseballPregamePredictor:
         self.pythagorean.fit(train_df)
         self.pitcher.fit(train_df)
         self.park_factor.fit(train_df)
+        self.travel_rest.fit(train_df)
         self.elo.fit(train_df)
         self.h2h.fit(train_df)
 
@@ -245,6 +253,10 @@ class BaseballPregamePredictor:
                 shrink_k=self._h2h_shrink_k,
             )
         )
+        sched = latest_schedule_columns(home=home, away=away, games=self.games)
+        row_df["home_rest_days"] = sched.pop("home_rest_days", row_df["home_rest_days"])
+        row_df["away_rest_days"] = sched.pop("away_rest_days", row_df["away_rest_days"])
+        row_df = row_df.assign(**sched)
 
         member_preds: list[MemberPrediction] = [
             self.lgbm.predict(row_df),
@@ -254,6 +266,7 @@ class BaseballPregamePredictor:
             self.pythagorean.predict(row_df),
             self.pitcher.predict(row_df),
             self.park_factor.predict(row_df),
+            self.travel_rest.predict(row_df),
             self.elo.predict(row_df),
             self.h2h.predict(row_df),
         ]

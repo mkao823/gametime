@@ -48,6 +48,10 @@ from gametime.pregame.baseball.models.runs_strength import (
 )
 from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
+from gametime.pregame.baseball.models.travel_rest import (
+    TravelRestMember,
+    attach_travel_rest,
+)
 from gametime.pregame.baseball.prediction import (
     EnsemblePrediction,
     MemberPrediction,
@@ -156,6 +160,7 @@ def train_baseball_pregame(
     table = attach_pitcher(table, pitcher_games)
     park_factors = load_park_factors(park_factors_path)
     table = attach_park(table, games, park_factors)
+    table = attach_travel_rest(table, games)
     table = attach_runs_strength(table, games, window=runs_strength_window)
     table = attach_poisson(table, games)
     table = attach_pythagorean(table, games)
@@ -196,6 +201,8 @@ def train_baseball_pregame(
     pitcher.fit(train_df)
     park_factor = ParkFactorMember()
     park_factor.fit(train_df)
+    travel_rest = TravelRestMember()
+    travel_rest.fit(train_df)
     elo = EloMember(elo_params)
     elo.fit(train_df)
     h2h = H2HMember(league_total_fallback=league_total_fallback)
@@ -220,6 +227,7 @@ def train_baseball_pregame(
         | PythagoreanMember
         | PitcherMember
         | ParkFactorMember
+        | TravelRestMember
         | EloMember
         | H2HMember
     ] = [
@@ -230,6 +238,7 @@ def train_baseball_pregame(
         pythagorean,
         pitcher,
         park_factor,
+        travel_rest,
         elo,
         h2h,
     ]
