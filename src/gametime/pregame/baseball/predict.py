@@ -41,6 +41,7 @@ from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
 )
+from gametime.pregame.baseball.models.travel_rest import TravelRestMember, attach_travel_rest, latest_schedule_columns
 from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.pregame.baseball.prediction import MemberPrediction
 from gametime.pregame.predict import PregamePrediction
@@ -135,6 +136,7 @@ class BaseballPregamePredictor:
         self.poisson = PoissonMember()
         self.pythagorean = PythagoreanMember()
         self.pitcher = PitcherMember()
+        self.travel_rest = TravelRestMember()
         self.elo_params = elo_params or BaseballEloParams()
         self.elo = EloMember(self.elo_params)
         self._pitcher_games = load_pitcher_games(
@@ -143,6 +145,7 @@ class BaseballPregamePredictor:
 
         table = build_training_table(self.games, form_window=self.form_window)
         table = attach_pitcher(table, self._pitcher_games)
+        table = attach_travel_rest(table, self.games)
         table = attach_runs_strength(
             table, self.games, window=self.runs_strength_window
         )
@@ -163,6 +166,7 @@ class BaseballPregamePredictor:
         self.poisson.fit(train_df)
         self.pythagorean.fit(train_df)
         self.pitcher.fit(train_df)
+        self.travel_rest.fit(train_df)
         self.elo.fit(train_df)
 
         self._use_stacking = use_stacking
@@ -209,6 +213,10 @@ class BaseballPregamePredictor:
                 pitcher_games=self._pitcher_games,
             )
         )
+        sched = latest_schedule_columns(home=home, away=away, games=self.games)
+        row_df["home_rest_days"] = sched.pop("home_rest_days", row_df["home_rest_days"])
+        row_df["away_rest_days"] = sched.pop("away_rest_days", row_df["away_rest_days"])
+        row_df = row_df.assign(**sched)
 
         member_preds: list[MemberPrediction] = [
             self.lgbm.predict(row_df),
@@ -217,6 +225,7 @@ class BaseballPregamePredictor:
             self.poisson.predict(row_df),
             self.pythagorean.predict(row_df),
             self.pitcher.predict(row_df),
+            self.travel_rest.predict(row_df),
             self.elo.predict(row_df),
         ]
         if self._use_stacking:

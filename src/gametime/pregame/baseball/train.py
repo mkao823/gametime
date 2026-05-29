@@ -41,6 +41,7 @@ from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
 )
+from gametime.pregame.baseball.models.travel_rest import TravelRestMember, attach_travel_rest
 from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.pregame.baseball.prediction import (
     EnsemblePrediction,
@@ -143,6 +144,7 @@ def train_baseball_pregame(
         else load_pitcher_games(None)
     )
     table = attach_pitcher(table, pitcher_games)
+    table = attach_travel_rest(table, games)
     table = attach_runs_strength(table, games, window=runs_strength_window)
     table = attach_poisson(table, games)
     table = attach_pythagorean(table, games)
@@ -180,6 +182,8 @@ def train_baseball_pregame(
     pythagorean.fit(train_df)
     pitcher = PitcherMember()
     pitcher.fit(train_df)
+    travel_rest = TravelRestMember()
+    travel_rest.fit(train_df)
     elo = EloMember(elo_params)
     elo.fit(train_df)
 
@@ -201,6 +205,7 @@ def train_baseball_pregame(
         | PoissonMember
         | PythagoreanMember
         | PitcherMember
+        | TravelRestMember
         | EloMember
     ] = [
         lgbm,
@@ -209,6 +214,7 @@ def train_baseball_pregame(
         poisson,
         pythagorean,
         pitcher,
+        travel_rest,
         elo,
     ]
     val_preds: dict[str, MemberPrediction] = {}
