@@ -34,8 +34,11 @@ pregame:
     export_predictions: true
     min_member_weight: 0.05
     grid_step: 0.05
-    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, elo]
+    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, elo, h2h]
     runs_strength_window: 30
+  h2h:
+    meeting_window: 10
+    shrink_k: 8
   elo:
     k: 4
     home_adv_runs: 0.15

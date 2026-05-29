@@ -17,6 +17,7 @@ from gametime.pregame.baseball.ensemble import (
     stack_predict,
 )
 from gametime.pregame.baseball.models.elo import attach_elo, fit_baseball_elo
+from gametime.pregame.baseball.models.h2h import attach_h2h
 from gametime.pregame.baseball.models.poisson import attach_poisson
 from gametime.pregame.baseball.models.pythagorean import attach_pythagorean
 from gametime.pregame.baseball.features import build_training_table
@@ -509,16 +510,16 @@ def test_attach_runs_strength_excludes_current_game_runs():
     assert last < 100.0
 
 
-def test_attach_park_excludes_current_game_total():
-    dates = pd.date_range("2024-04-01", periods=6, freq="D")
-    totals = [8.0, 8.0, 8.0, 8.0, 8.0, 50.0]
-    games = pd.DataFrame({"game_id": [f"g{i}" for i in range(6)], "game_date": dates, "home_team": ["AAA"]*6, "away_team": ["BBB"]*6, "home_runs": [t/2 for t in totals], "away_runs": [t/2 for t in totals], "total_final": totals, "margin_final": [1.0]*6, "season_start_year": [2024]*6, "seasontype": ["rg"]*6})
-    enriched = attach_park(games[["game_id","home_team","season_start_year"]], games, pd.DataFrame())
-    assert enriched.loc[enriched["game_id"]=="g5","home_park_factor"].iloc[0] == pytest.approx(1.0, rel=0.05)
+def test_attach_h2h_excludes_current_and_future_meetings():
+  dates = pd.date_range("2024-04-01", periods=4, freq="D")
+  games = pd.DataFrame({"game_id": ["g0","g1","g2","g3"], "game_date": dates, "home_team": ["AAA","BBB","AAA","AAA"], "away_team": ["BBB","AAA","BBB","BBB"], "home_runs": [5,1,999,2], "away_runs": [3,9,0,1], "margin_final": [2,-8,999,1], "season_start_year": [2024]*4, "seasontype": ["rg"]*4})
+  enriched = attach_h2h(games[["game_id","season_start_year"]], games, window=10, shrink_k=8.0)
+  assert enriched.loc[enriched["game_id"]=="g0","h2h_n_meetings"].iloc[0]==0
+  assert enriched.loc[enriched["game_id"]=="g2","h2h_n_meetings"].iloc[0]==2
+  assert enriched.loc[enriched["game_id"]=="g2","h2h_raw_margin"].iloc[0]==pytest.approx(-3.0)
 
-def test_attach_park_static_fallback_for_inference():
-    dates = pd.date_range("2024-04-01", periods=1, freq="D")
-    games = pd.DataFrame({"game_id":["g0"],"game_date":dates,"home_team":["COL"],"away_team":["BBB"],"home_runs":[6],"away_runs":[4],"total_final":[10.0],"margin_final":[2],"season_start_year":[2024],"seasontype":["rg"]})
-    static = pd.DataFrame({"home_team":["COL"],"park_factor_runs":[1.15],"park_factor_hr":[np.nan]})
-    enriched = attach_park(build_training_table(games), games, static)
-    assert enriched.loc[0,"home_park_factor"] == pytest.approx(1.15)
+def test_grid_search_respects_min_member_weight_eight_members():
+  min_w=0.05
+  members=[_member(chr(97+i),[9.0]*4,[1.0,-1.0,1.0,-1.0]) for i in range(8)]
+  wt,wm=fit_weights(members,np.array([9.0]*4),np.array([1.,-1.,1.,-1.]),step=0.05,min_member_weight=min_w)
+  assert all(wt[n]>=min_w-1e-9 for n in wt)

@@ -36,6 +36,7 @@ from gametime.pregame.baseball.models.pythagorean import (
     PythagoreanMember,
     attach_pythagorean,
 )
+from gametime.pregame.baseball.models.h2h import H2HMember, attach_h2h
 from gametime.pregame.baseball.models.pitcher import PitcherMember, attach_pitcher
 from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
@@ -134,6 +135,9 @@ def train_baseball_pregame(
     eval_dir: Path | None = None,
     elo_params: BaseballEloParams | None = None,
     pitcher_games_path: Path | None = None,
+    league_total_fallback: float = 8.5,
+    h2h_window: int = 10,
+    h2h_shrink_k: float = 8.0,
 ) -> dict[str, Any]:
     games = pd.read_parquet(games_path)
     table = build_training_table(games, form_window=form_window)
@@ -148,6 +152,7 @@ def train_baseball_pregame(
     table = attach_pythagorean(table, games)
     elo_params = elo_params or BaseballEloParams()
     table = attach_elo(table, games, params=elo_params)
+    table = attach_h2h(table, games, window=h2h_window, shrink_k=h2h_shrink_k)
     train_df, val_df, test_df = split_table_by_season(
         table,
         train_seasons=train_seasons,
@@ -182,6 +187,8 @@ def train_baseball_pregame(
     pitcher.fit(train_df)
     elo = EloMember(elo_params)
     elo.fit(train_df)
+    h2h = H2HMember(league_total_fallback=league_total_fallback)
+    h2h.fit(train_df)
 
     train_games = games[
         games["season_start_year"].isin(train_seasons)
@@ -202,6 +209,7 @@ def train_baseball_pregame(
         | PythagoreanMember
         | PitcherMember
         | EloMember
+        | H2HMember
     ] = [
         lgbm,
         heuristic,
@@ -210,6 +218,7 @@ def train_baseball_pregame(
         pythagorean,
         pitcher,
         elo,
+        h2h,
     ]
     val_preds: dict[str, MemberPrediction] = {}
     test_preds: dict[str, MemberPrediction] = {}
