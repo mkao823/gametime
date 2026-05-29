@@ -342,6 +342,14 @@ def pregame_train(argv=None):
             ),
             eval_dir=root / Path(pg.get("report_path", "reports/mlb/eval/pregame_summary.json")).parent,
             elo_params=baseball_elo_params,
+            pitcher_games_path=root
+            / data_cfg.get(
+                "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+            ),
+            park_factors_path=root
+            / data_cfg.get(
+                "park_factors_path", "data/mlb/processed/park_factors.parquet"
+            ),
         )
         print(json.dumps(meta, indent=2, default=str))
         return
@@ -381,6 +389,133 @@ def pregame_train(argv=None):
         band_target_coverage=float(pg.get("band_target_coverage", 0.80)),
     )
     print(json.dumps(meta, indent=2, default=str))
+
+
+def pregame_slate(argv=None):
+    from datetime import date
+
+    from gametime.ingest.mlb import infer_season_start_year, slate_matchups_for_date
+    from gametime.pregame.baseball.models.elo import BaseballEloParams
+    from gametime.pregame.baseball.predict import BaseballPregamePredictor
+    from gametime.pregame.log import log_pregame_prediction
+    from gametime.sports import get_sport
+
+    p = argparse.ArgumentParser(
+        description="Run MLB pregame ensemble for all games on a calendar date"
+    )
+    p.add_argument("--config", default="configs/mlb.yaml")
+    p.add_argument(
+        "--date",
+        default=None,
+        help="Slate date YYYY-MM-DD (default: today in local timezone)",
+    )
+    p.add_argument("--season", type=int, default=None, help="MLB season_start_year override")
+    p.add_argument("--regular-season", action="store_true", help="Regular-season games only")
+    p.add_argument("--no-log", action="store_true")
+    args = p.parse_args(argv)
+
+    if args.date:
+        slate_date = date.fromisoformat(args.date)
+    else:
+        slate_date = date.today()
+
+    root = project_root()
+    cfg = load_config(root / args.config)
+    sport = get_sport(cfg)
+    if sport.family != "baseball":
+        print("pregame-slate is only supported for MLB (sport: mlb).", file=sys.stderr)
+        sys.exit(2)
+
+    pg = cfg.get("pregame", {})
+    data_cfg = cfg.get("data", {})
+    train_cfg = cfg.get("train", {})
+    games_path = root / pg.get("games_path", data_cfg.get("games_path"))
+    model_dir = root / pg.get("model_dir", train_cfg["model_dir"])
+    season = args.season or infer_season_start_year(slate_date)
+
+    matchups = slate_matchups_for_date(
+        slate_date,
+        season_start_year=season,
+        games_path=games_path,
+        teams=sport.mlb_teams or None,
+        regular_season_only=args.regular_season,
+    )
+    if not matchups:
+        print(f"No matchups found for {slate_date.isoformat()} (season {season}).")
+        sys.exit(1)
+
+    ensemble_cfg = pg.get("ensemble", {})
+    elo_cfg = pg.get("elo", {})
+    baseball_elo_params = BaseballEloParams(
+        k=float(elo_cfg.get("k", 4.0)),
+        home_adv_runs=float(elo_cfg.get("home_adv_runs", 0.15)),
+        season_regression=float(elo_cfg.get("season_regression", 0.25)),
+        margin_elo_scale=float(elo_cfg.get("margin_elo_scale", 50.0)),
+    )
+    pitcher_games_path = root / data_cfg.get(
+        "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+    )
+    park_factors_path = root / data_cfg.get(
+        "park_factors_path", "data/mlb/processed/park_factors.parquet"
+    )
+    predictor = BaseballPregamePredictor(
+        model_dir,
+        games_path,
+        form_window=int(pg.get("form_window", 10)),
+        runs_strength_window=int(ensemble_cfg.get("runs_strength_window", 30)),
+        train_seasons=train_cfg["train_seasons"],
+        train_seasontypes=train_cfg.get("train_seasontypes", ["rg"]),
+        use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
+        elo_params=baseball_elo_params,
+        pitcher_games_path=pitcher_games_path,
+        park_factors_path=park_factors_path,
+    )
+
+    is_playoff = not args.regular_season
+    log_dir = root / cfg.get("live", {}).get("log_dir", "data/live_predictions")
+    rows: list[dict] = []
+    errors: list[str] = []
+
+    for m in matchups:
+        away, home = m["away"], m["home"]
+        try:
+            pred = predictor.predict(home=home, away=away, is_playoff=is_playoff)
+        except Exception as exc:
+            errors.append(f"{away} @ {home}: {exc}")
+            continue
+        if not args.no_log:
+            log_pregame_prediction(
+                log_dir,
+                predictor.to_pregame_prediction(pred),
+                game_id=m.get("game_id"),
+            )
+        rows.append(
+            {
+                "matchup": f"{away} @ {home}",
+                "total": pred.pred_total,
+                "margin": pred.pred_margin,
+                "winner": pred.winner_tricode,
+            }
+        )
+
+    print(f"MLB slate {slate_date.isoformat()}  ({len(rows)} games, season {season})")
+    if rows:
+        w_matchup = max(len(r["matchup"]) for r in rows)
+        header = f"{'Matchup':<{w_matchup}}  {'Total':>6}  {'Margin':>7}  Winner"
+        print(header)
+        print("-" * len(header))
+        for r in rows:
+            print(
+                f"{r['matchup']:<{w_matchup}}  {r['total']:6.1f}  {r['margin']:+7.1f}  {r['winner']}"
+            )
+    if errors:
+        print("\nSkipped:", file=sys.stderr)
+        for msg in errors:
+            print(f"  {msg}", file=sys.stderr)
+        if not rows:
+            sys.exit(1)
+    if not args.no_log and rows:
+        print(f"\nLogged → {log_dir / 'pregame_predictions.parquet'}")
 
 
 def pregame(argv=None):
@@ -439,6 +574,12 @@ def pregame(argv=None):
             season_regression=float(elo_cfg.get("season_regression", 0.25)),
             margin_elo_scale=float(elo_cfg.get("margin_elo_scale", 50.0)),
         )
+        pitcher_games_path = root / data_cfg.get(
+            "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+        )
+        park_factors_path = root / data_cfg.get(
+            "park_factors_path", "data/mlb/processed/park_factors.parquet"
+        )
         predictor = BaseballPregamePredictor(
             model_dir,
             games_path,
@@ -448,6 +589,8 @@ def pregame(argv=None):
             train_seasontypes=train_cfg.get("train_seasontypes", ["rg"]),
             use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
             elo_params=baseball_elo_params,
+            pitcher_games_path=pitcher_games_path,
+            park_factors_path=park_factors_path,
         )
         pred = predictor.predict(
             home=args.home,
@@ -614,11 +757,12 @@ def main():
         "live": live,
         "pregame": pregame,
         "pregame-train": pregame_train,
+        "pregame-slate": pregame_slate,
     }
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(
             "Usage: gametime <download|build|train|eval|backtest-signals|"
-            "analyze-live|analyze-game|live|pregame|pregame-train>"
+            "analyze-live|analyze-game|live|pregame|pregame-train|pregame-slate>"
         )
         sys.exit(1)
     cmds[sys.argv[1]](sys.argv[2:])

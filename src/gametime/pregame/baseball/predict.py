@@ -32,10 +32,22 @@ from gametime.pregame.baseball.models.pythagorean import (
     _latest_pythagorean_rates,
     attach_pythagorean,
 )
+from gametime.pregame.baseball.models.park_factor import (
+    ParkFactorMember,
+    attach_park,
+    latest_park_columns,
+)
+from gametime.pregame.baseball.models.pitcher import (
+    PitcherMember,
+    attach_pitcher,
+    latest_pitcher_columns,
+)
 from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
 )
+from gametime.ingest.mlb_park import load_park_factors
+from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.pregame.baseball.prediction import MemberPrediction
 from gametime.pregame.predict import PregamePrediction
 
@@ -104,6 +116,8 @@ class BaseballPregamePredictor:
         train_seasontypes: list[str] | None = None,
         use_stacking: bool = False,
         elo_params: BaseballEloParams | None = None,
+        pitcher_games_path: str | Path | None = None,
+        park_factors_path: str | Path | None = None,
     ) -> None:
         model_dir = Path(model_dir)
         self.model_dir = model_dir
@@ -127,10 +141,20 @@ class BaseballPregamePredictor:
         self.runs_strength = RunsStrengthMember()
         self.poisson = PoissonMember()
         self.pythagorean = PythagoreanMember()
+        self.pitcher = PitcherMember()
+        self.park_factor = ParkFactorMember()
         self.elo_params = elo_params or BaseballEloParams()
         self.elo = EloMember(self.elo_params)
+        self._pitcher_games = load_pitcher_games(
+            Path(pitcher_games_path) if pitcher_games_path else None
+        )
+        self._park_factors = load_park_factors(
+            Path(park_factors_path) if park_factors_path else None
+        )
 
         table = build_training_table(self.games, form_window=self.form_window)
+        table = attach_pitcher(table, self._pitcher_games)
+        table = attach_park(table, self.games, self._park_factors)
         table = attach_runs_strength(
             table, self.games, window=self.runs_strength_window
         )
@@ -150,6 +174,8 @@ class BaseballPregamePredictor:
         self.runs_strength.fit(train_df)
         self.poisson.fit(train_df)
         self.pythagorean.fit(train_df)
+        self.pitcher.fit(train_df)
+        self.park_factor.fit(train_df)
         self.elo.fit(train_df)
 
         self._use_stacking = use_stacking
@@ -188,6 +214,17 @@ class BaseballPregamePredictor:
                 self.games, home=home, away=away, params=self.elo_params
             )
         )
+        row_df = row_df.assign(
+            **latest_pitcher_columns(
+                home=home,
+                away=away,
+                games=self.games,
+                pitcher_games=self._pitcher_games,
+            )
+        )
+        row_df = row_df.assign(
+            **latest_park_columns(home=home, park_factors=self._park_factors)
+        )
 
         member_preds: list[MemberPrediction] = [
             self.lgbm.predict(row_df),
@@ -195,6 +232,8 @@ class BaseballPregamePredictor:
             self.runs_strength.predict(row_df),
             self.poisson.predict(row_df),
             self.pythagorean.predict(row_df),
+            self.pitcher.predict(row_df),
+            self.park_factor.predict(row_df),
             self.elo.predict(row_df),
         ]
         if self._use_stacking:

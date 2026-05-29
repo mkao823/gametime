@@ -27,11 +27,23 @@ FEATURE_COLUMNS = [
     "home_win_streak",
     "away_win_streak",
     "is_playoff",
+    # starting pitcher (M1 / W6h); league-average fallback when has_starting_pitcher=0
+    "home_sp_fip",
+    "away_sp_fip",
+    "sp_fip_diff",
+    "home_sp_rest_days",
+    "away_sp_rest_days",
+    # park run environment (M2 / W6i)
+    "home_park_factor",
+    "park_factor_log",
+    "has_park_factor",
     # reserved for future ingest (0 until populated)
     "has_weather",
     "has_lineup",
     "has_starting_pitcher",
 ]
+
+LEAGUE_FIP = 4.20
 
 TARGET_TOTAL = "total_final"
 TARGET_MARGIN = "margin_final"
@@ -142,7 +154,23 @@ def build_training_table(games: pd.DataFrame, *, form_window: int = 10) -> pd.Da
     table["is_playoff"] = (table["seasontype"] == "po").astype(int)
     table["has_weather"] = 0
     table["has_lineup"] = 0
-    table["has_starting_pitcher"] = 0
+    for col in ("home_sp_fip", "away_sp_fip", "sp_fip_diff", "home_sp_rest_days", "away_sp_rest_days"):
+        if col not in table.columns:
+            if col == "sp_fip_diff":
+                table[col] = 0.0
+            elif "fip" in col:
+                table[col] = LEAGUE_FIP
+            else:
+                table[col] = 5.0
+    if "has_starting_pitcher" not in table.columns:
+        table["has_starting_pitcher"] = 0
+    for col, default in (
+        ("home_park_factor", 1.0),
+        ("park_factor_log", 0.0),
+        ("has_park_factor", 0),
+    ):
+        if col not in table.columns:
+            table[col] = default
     table = table.dropna(subset=FEATURE_COLUMNS[:8])
     return table
 
@@ -237,7 +265,15 @@ def build_inference_row(
         "is_playoff": int(bool(is_playoff)),
         "has_weather": 0,
         "has_lineup": 0,
+        "home_sp_fip": LEAGUE_FIP,
+        "away_sp_fip": LEAGUE_FIP,
+        "sp_fip_diff": 0.0,
+        "home_sp_rest_days": 5.0,
+        "away_sp_rest_days": 5.0,
         "has_starting_pitcher": 0,
+        "home_park_factor": 1.0,
+        "park_factor_log": 0.0,
+        "has_park_factor": 0,
         **rs,
     }
     row["form_off_diff"] = row["home_form_runs_scored"] - row["away_form_runs_scored"]
