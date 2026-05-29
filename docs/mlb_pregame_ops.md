@@ -77,6 +77,33 @@ gametime-pregame-slate --config configs/mlb.yaml --date $(date +%Y-%m-%d) --regu
 - Matchups come from `games.parquet` when that date has completed games; otherwise pybaseball team schedules (includes upcoming games).
 - `--season YYYY` overrides season label for schedule fetch.
 
+## Retro slate backtest
+
+Honest pregame accuracy over past calendar days: for each slate date, the predictor only sees games with `game_date < slate_date` (no same-day leakage). Outputs are separate from train holdout reports.
+
+```bash
+gametime-pregame-slate-backtest --config configs/mlb.yaml --days 14 --regular-season
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--end-date` | Yesterday (or latest date in `games.parquet`) | Last day in the lookback window |
+| `--days` | `14` | Window `(end_date - days, end_date]` with completed RS games |
+| `--regular-season` | off | Score only `seasontype == rg` |
+| `--append` | off | Concat new slate dates only if report files already exist |
+
+Artifacts (under `reports/mlb/eval/` by default):
+
+| File | Content |
+|------|---------|
+| `slate_backtest_daily.parquet` | Per `slate_date`: `n_games`, `total_mae`, `margin_mae`, `winner_accuracy`, `bias_total`, `blend_mode` |
+| `slate_backtest_daily.json` | Same summary for quick diff |
+| `slate_backtest_games.parquet` | Per-game preds vs actuals |
+
+Truncated history snapshots: `data/mlb/processed/games_through_{YYYY-MM-DD}.parquet` (and matching `pitcher_games_through_{YYYY-MM-DD}.parquet` when the sidecar has orphan `game_id`s).
+
+**Metrics (eval agent):** `total_mae` / `margin_mae` = mean absolute error on that slate; `winner_accuracy` = fraction with `pred_winner == actual_winner` (winner from margin sign); `bias_total` = mean signed `pred_total - actual_total`.
+
 ## Prediction log
 
 Unless `--no-log`, predictions append to:

@@ -35,6 +35,7 @@ gametime-backtest-signals = "gametime.cli:backtest_signals"
 gametime-pregame = "gametime.cli:pregame"
 gametime-pregame-train = "gametime.cli:pregame_train"
 gametime-pregame-slate = "gametime.cli:pregame_slate"
+gametime-pregame-slate-backtest = "gametime.cli:pregame_slate_backtest"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
