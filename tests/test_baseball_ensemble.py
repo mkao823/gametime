@@ -27,6 +27,8 @@ from gametime.pregame.baseball.models.runs_strength import attach_runs_strength
 from gametime.pregame.baseball.models.travel_rest import (
     TravelRestMember, attach_travel_rest, latest_schedule_columns,
 )
+from gametime.pregame.baseball.models.weather import WeatherMember, attach_weather
+from gametime.ingest import mlb_weather
 from gametime.pregame.baseball.prediction import MemberPrediction
 
 
@@ -698,3 +700,107 @@ def test_travel_rest_member_predicts():
 def test_latest_schedule_columns_empty_games():
     cols = latest_schedule_columns(home="SEA", away="CHW", games=pd.DataFrame())
     assert cols["home_games_last_3d"] == 0.0
+
+
+def test_attach_weather_by_game_id_and_dome_handling():
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "game_date": pd.to_datetime(["2024-04-01", "2024-04-02"]),
+            "home_team": ["SEA", "LAD"],
+            "away_team": ["BOS", "NYY"],
+            "home_runs": [4, 5],
+            "away_runs": [3, 4],
+            "total_final": [7, 9],
+            "margin_final": [1, 1],
+            "season_start_year": [2024, 2024],
+            "seasontype": ["rg", "rg"],
+        }
+    )
+    table = build_training_table(games)
+    weather_games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "home_team": ["SEA", "LAD"],
+            "game_date": pd.to_datetime(["2024-04-01", "2024-04-02"]),
+            "temp_f": [65.0, 72.0],
+            "wind_mph": [9.0, 8.0],
+            "humidity_pct": [71.0, 52.0],
+            "is_dome": [1, 0],
+            "has_weather": [1, 1],
+        }
+    )
+    enriched = attach_weather(table, weather_games)
+    assert enriched.loc[enriched["game_id"] == "g0", "wind_mph"].iloc[0] == pytest.approx(0.0)
+    assert enriched.loc[enriched["game_id"] == "g1", "wind_mph"].iloc[0] == pytest.approx(8.0)
+    assert (enriched["has_weather"] == 1).all()
+
+
+def test_attach_weather_fallback_when_sidecar_missing():
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0"],
+            "game_date": pd.to_datetime(["2024-04-01"]),
+            "home_team": ["AAA"],
+            "away_team": ["BBB"],
+            "home_runs": [4],
+            "away_runs": [3],
+            "total_final": [7],
+            "margin_final": [1],
+            "season_start_year": [2024],
+            "seasontype": ["rg"],
+        }
+    )
+    table = build_training_table(games)
+    enriched = attach_weather(table, pd.DataFrame())
+    row = enriched.iloc[0]
+    assert row["has_weather"] == 0
+    assert row["temp_f"] == pytest.approx(70.0)
+    assert row["wind_mph"] == pytest.approx(0.0)
+
+
+def test_weather_member_predicts_with_deterministic_fallback():
+    df = pd.DataFrame(
+        {
+            "temp_f": [65.0, 70.0, 80.0],
+            "wind_mph": [8.0, 0.0, 12.0],
+            "humidity_pct": [65.0, 50.0, 45.0],
+            "is_dome": [0, 1, 0],
+            "has_weather": [1, 0, 1],
+            "total_final": [8.5, 8.7, 9.1],
+            "margin_final": [0.1, 0.0, 0.2],
+        }
+    )
+    member = WeatherMember()
+    member.fit(df.iloc[:2])
+    pred = member.predict(df.iloc[1:2])
+    assert np.isfinite(pred.total[0])
+    assert np.isfinite(pred.margin[0])
+
+
+def test_weather_ingest_row_alignment_uses_game_id_keys(tmp_path):
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "game_date": pd.to_datetime(["2024-04-01", "2024-04-02"]),
+            "home_team": ["SEA", "LAD"],
+            "away_team": ["BOS", "NYY"],
+        }
+    )
+    orig = mlb_weather._fetch_daily_weather
+    try:
+        mlb_weather._fetch_daily_weather = lambda **_: {
+            "temp_f": 68.0,
+            "wind_mph": 7.0,
+            "humidity_pct": 60.0,
+            "is_dome": 0,
+        }
+        weather = mlb_weather.build_weather_games_table(
+            games,
+            cache_dir=tmp_path / "weather_cache",
+            pause=0.0,
+        )
+    finally:
+        mlb_weather._fetch_daily_weather = orig
+    assert set(weather["game_id"].astype(str)) == {"g0", "g1"}
+    assert set(weather["home_team"].astype(str)) == {"SEA", "LAD"}

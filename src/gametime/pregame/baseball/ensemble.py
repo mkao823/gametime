@@ -132,6 +132,34 @@ def _grid_search_target(
             best_weights = weights.copy()
             best_balance = balance
 
+    # Exhaustive simplex grids explode combinatorially as members grow.
+    # For larger ensembles, use deterministic random simplex search instead.
+    if n > 8:
+        rng = np.random.default_rng(42)
+        sample_n = 25000
+
+        min_vec = np.array([floor] * n, dtype=float)
+        min_sum = float(min_vec.sum())
+        if min_sum > 1.0 + 1e-9:
+            equal = {name: 1.0 / n for name in member_names}
+            return equal, float("nan")
+
+        for _ in range(sample_n):
+            if 1.0 - min_sum <= 1e-12:
+                vals = min_vec.copy()
+            else:
+                extra = rng.dirichlet(np.ones(n)) * (1.0 - min_sum)
+                vals = min_vec + extra
+            weights = {name: float(vals[i]) for i, name in enumerate(member_names)}
+            pred = sum(weights[name] * stacks[name] for name in member_names)
+            mae = float(np.mean(np.abs(pred - actual)))
+            _consider(weights, mae)
+
+        if best_weights is None:
+            equal = {name: 1.0 / n for name in member_names}
+            return equal, float("nan")
+        return best_weights, best_mae
+
     def _recurse(idx: int, remaining: float, partial: list[float]) -> None:
         if idx == n - 1:
             w_last = remaining

@@ -51,6 +51,16 @@ def filter_pitcher_games_for_history(
     return pg
 
 
+def filter_weather_games_for_history(
+    weather_games: Optional[pd.DataFrame],
+    games_through: pd.DataFrame,
+) -> Optional[pd.DataFrame]:
+    if weather_games is None or weather_games.empty:
+        return weather_games
+    ids = set(games_through["game_id"].astype(str))
+    return weather_games[weather_games["game_id"].astype(str).isin(ids)].copy()
+
+
 def write_games_through(
     games: pd.DataFrame,
     slate_date: date,
@@ -146,6 +156,7 @@ def run_slate_backtest_day(
     elo_params: Any,
     pitcher_games_path: Optional[Path],
     park_factors_path: Optional[Path],
+    weather_games_path: Optional[Path] = None,
     league_total_fallback: float,
     h2h_window: int,
     h2h_shrink_k: float,
@@ -175,6 +186,16 @@ def run_slate_backtest_day(
             )
             pg_filtered.to_parquet(pitcher_through, index=False)
             pitcher_path = pitcher_through
+    weather_path = weather_games_path
+    if weather_games_path is not None and Path(weather_games_path).exists():
+        wg_full = pd.read_parquet(weather_games_path)
+        wg_filtered = filter_weather_games_for_history(wg_full, games_through)
+        if wg_filtered is not None and len(wg_filtered) < len(wg_full):
+            weather_through = (
+                games_through_dir / f"weather_games_through_{slate_date.isoformat()}.parquet"
+            )
+            wg_filtered.to_parquet(weather_through, index=False)
+            weather_path = weather_through
 
     factory = predictor_factory or BaseballPregamePredictor
     predictor = factory(
@@ -188,6 +209,7 @@ def run_slate_backtest_day(
         elo_params=elo_params,
         pitcher_games_path=pitcher_path,
         park_factors_path=park_factors_path,
+        weather_games_path=weather_path,
         league_total_fallback=league_total_fallback,
         h2h_window=h2h_window,
         h2h_shrink_k=h2h_shrink_k,
@@ -262,6 +284,7 @@ def run_slate_backtest(
     elo_params: Any,
     pitcher_games_path: Optional[Path],
     park_factors_path: Optional[Path],
+    weather_games_path: Optional[Path] = None,
     league_total_fallback: float,
     h2h_window: int,
     h2h_shrink_k: float,
@@ -286,6 +309,7 @@ def run_slate_backtest(
             elo_params=elo_params,
             pitcher_games_path=pitcher_games_path,
             park_factors_path=park_factors_path,
+            weather_games_path=weather_games_path,
             league_total_fallback=league_total_fallback,
             h2h_window=h2h_window,
             h2h_shrink_k=h2h_shrink_k,

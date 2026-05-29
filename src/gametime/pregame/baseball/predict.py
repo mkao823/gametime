@@ -49,10 +49,16 @@ from gametime.pregame.baseball.models.runs_strength import (
 )
 from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
+from gametime.ingest.mlb_weather import load_weather_games
 from gametime.pregame.baseball.models.travel_rest import (
     TravelRestMember,
     attach_travel_rest,
     latest_schedule_columns,
+)
+from gametime.pregame.baseball.models.weather import (
+    WeatherMember,
+    attach_weather,
+    latest_weather_columns,
 )
 from gametime.pregame.baseball.prediction import MemberPrediction
 from gametime.pregame.predict import PregamePrediction
@@ -124,6 +130,7 @@ class BaseballPregamePredictor:
         elo_params: BaseballEloParams | None = None,
         pitcher_games_path: str | Path | None = None,
         park_factors_path: str | Path | None = None,
+        weather_games_path: str | Path | None = None,
         league_total_fallback: float = 8.5,
         h2h_window: int = 10,
         h2h_shrink_k: float = 8.0,
@@ -164,10 +171,14 @@ class BaseballPregamePredictor:
         self._park_factors = load_park_factors(
             Path(park_factors_path) if park_factors_path else None
         )
+        self._weather_games = load_weather_games(
+            Path(weather_games_path) if weather_games_path else None
+        )
 
         table = build_training_table(self.games, form_window=self.form_window)
         table = attach_pitcher(table, self._pitcher_games)
         table = attach_park(table, self.games, self._park_factors)
+        table = attach_weather(table, self._weather_games)
         table = attach_travel_rest(table, self.games)
         table = attach_runs_strength(
             table, self.games, window=self.runs_strength_window
@@ -194,6 +205,8 @@ class BaseballPregamePredictor:
         self.pitcher.fit(train_df)
         self.park_factor.fit(train_df)
         self.travel_rest.fit(train_df)
+        self.weather = WeatherMember()
+        self.weather.fit(train_df)
         self.elo.fit(train_df)
         self.h2h.fit(train_df)
 
@@ -245,6 +258,9 @@ class BaseballPregamePredictor:
             **latest_park_columns(home=home, park_factors=self._park_factors)
         )
         row_df = row_df.assign(
+            **latest_weather_columns(home=home, weather_games=self._weather_games)
+        )
+        row_df = row_df.assign(
             **latest_h2h_columns(
                 self.games,
                 home=home,
@@ -266,6 +282,7 @@ class BaseballPregamePredictor:
             self.pythagorean.predict(row_df),
             self.pitcher.predict(row_df),
             self.park_factor.predict(row_df),
+            self.weather.predict(row_df),
             self.travel_rest.predict(row_df),
             self.elo.predict(row_df),
             self.h2h.predict(row_df),
