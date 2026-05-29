@@ -306,6 +306,7 @@ def pregame_train(argv=None):
         from gametime.pregame.baseball.train import train_baseball_pregame
 
         elo_cfg = pg.get("elo", {})
+        h2h_cfg = pg.get("h2h", {})
         baseball_elo_params = BaseballEloParams(
             k=float(elo_cfg.get("k", 4.0)),
             home_adv_runs=float(elo_cfg.get("home_adv_runs", 0.15)),
@@ -336,6 +337,11 @@ def pregame_train(argv=None):
             min_member_weight=float(
                 pg.get("ensemble", {}).get("min_member_weight", 0.05)
             ),
+            max_member_weight=(
+                float(mw)
+                if (mw := pg.get("ensemble", {}).get("max_member_weight")) is not None
+                else None
+            ),
             stack_alpha=float(pg.get("ensemble", {}).get("stack_alpha", 1.0)),
             export_predictions=bool(
                 pg.get("ensemble", {}).get("export_predictions", True)
@@ -346,6 +352,13 @@ def pregame_train(argv=None):
             / data_cfg.get(
                 "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
             ),
+            park_factors_path=root
+            / data_cfg.get(
+                "park_factors_path", "data/mlb/processed/park_factors.parquet"
+            ),
+            league_total_fallback=float(pg.get("league_total_fallback", 8.5)),
+            h2h_window=int(h2h_cfg.get("meeting_window", 10)),
+            h2h_shrink_k=float(h2h_cfg.get("shrink_k", 8.0)),
         )
         print(json.dumps(meta, indent=2, default=str))
         return
@@ -451,6 +464,9 @@ def pregame_slate(argv=None):
     pitcher_games_path = root / data_cfg.get(
         "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
     )
+    park_factors_path = root / data_cfg.get(
+        "park_factors_path", "data/mlb/processed/park_factors.parquet"
+    )
     predictor = BaseballPregamePredictor(
         model_dir,
         games_path,
@@ -461,6 +477,7 @@ def pregame_slate(argv=None):
         use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
         elo_params=baseball_elo_params,
         pitcher_games_path=pitcher_games_path,
+        park_factors_path=park_factors_path,
     )
 
     is_playoff = not args.regular_season
@@ -560,6 +577,7 @@ def pregame(argv=None):
         games_path = root / pg.get("games_path", data_cfg.get("games_path"))
         ensemble_cfg = pg.get("ensemble", {})
         elo_cfg = pg.get("elo", {})
+        h2h_cfg = pg.get("h2h", {})
         baseball_elo_params = BaseballEloParams(
             k=float(elo_cfg.get("k", 4.0)),
             home_adv_runs=float(elo_cfg.get("home_adv_runs", 0.15)),
@@ -568,6 +586,9 @@ def pregame(argv=None):
         )
         pitcher_games_path = root / data_cfg.get(
             "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
+        )
+        park_factors_path = root / data_cfg.get(
+            "park_factors_path", "data/mlb/processed/park_factors.parquet"
         )
         predictor = BaseballPregamePredictor(
             model_dir,
@@ -579,6 +600,10 @@ def pregame(argv=None):
             use_stacking=bool(ensemble_cfg.get("use_stacking", False)),
             elo_params=baseball_elo_params,
             pitcher_games_path=pitcher_games_path,
+            park_factors_path=park_factors_path,
+            league_total_fallback=float(pg.get("league_total_fallback", 8.5)),
+            h2h_window=int(h2h_cfg.get("meeting_window", 10)),
+            h2h_shrink_k=float(h2h_cfg.get("shrink_k", 8.0)),
         )
         pred = predictor.predict(
             home=args.home,

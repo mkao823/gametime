@@ -20,6 +20,7 @@ from gametime.pregame.baseball.models.elo import (
     _latest_elo_columns,
     attach_elo,
 )
+from gametime.pregame.baseball.models.h2h import H2HMember, attach_h2h, latest_h2h_columns
 from gametime.pregame.baseball.models.heuristic import HeuristicMember
 from gametime.pregame.baseball.models.lgbm import LgbmMember
 from gametime.pregame.baseball.models.poisson import (
@@ -32,6 +33,11 @@ from gametime.pregame.baseball.models.pythagorean import (
     _latest_pythagorean_rates,
     attach_pythagorean,
 )
+from gametime.pregame.baseball.models.park_factor import (
+    ParkFactorMember,
+    attach_park,
+    latest_park_columns,
+)
 from gametime.pregame.baseball.models.pitcher import (
     PitcherMember,
     attach_pitcher,
@@ -41,7 +47,13 @@ from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
 )
+from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
+from gametime.pregame.baseball.models.travel_rest import (
+    TravelRestMember,
+    attach_travel_rest,
+    latest_schedule_columns,
+)
 from gametime.pregame.baseball.prediction import MemberPrediction
 from gametime.pregame.predict import PregamePrediction
 
@@ -111,6 +123,10 @@ class BaseballPregamePredictor:
         use_stacking: bool = False,
         elo_params: BaseballEloParams | None = None,
         pitcher_games_path: str | Path | None = None,
+        park_factors_path: str | Path | None = None,
+        league_total_fallback: float = 8.5,
+        h2h_window: int = 10,
+        h2h_shrink_k: float = 8.0,
     ) -> None:
         model_dir = Path(model_dir)
         self.model_dir = model_dir
@@ -135,20 +151,33 @@ class BaseballPregamePredictor:
         self.poisson = PoissonMember()
         self.pythagorean = PythagoreanMember()
         self.pitcher = PitcherMember()
+        self.park_factor = ParkFactorMember()
+        self.travel_rest = TravelRestMember()
         self.elo_params = elo_params or BaseballEloParams()
         self.elo = EloMember(self.elo_params)
+        self.h2h = H2HMember(league_total_fallback=league_total_fallback)
+        self._h2h_window = h2h_window
+        self._h2h_shrink_k = h2h_shrink_k
         self._pitcher_games = load_pitcher_games(
             Path(pitcher_games_path) if pitcher_games_path else None
+        )
+        self._park_factors = load_park_factors(
+            Path(park_factors_path) if park_factors_path else None
         )
 
         table = build_training_table(self.games, form_window=self.form_window)
         table = attach_pitcher(table, self._pitcher_games)
+        table = attach_park(table, self.games, self._park_factors)
+        table = attach_travel_rest(table, self.games)
         table = attach_runs_strength(
             table, self.games, window=self.runs_strength_window
         )
         table = attach_poisson(table, self.games)
         table = attach_pythagorean(table, self.games)
         table = attach_elo(table, self.games, params=self.elo_params)
+        table = attach_h2h(
+            table, self.games, window=self._h2h_window, shrink_k=self._h2h_shrink_k
+        )
         seasontypes = train_seasontypes or ["rg"]
         train_df = table[
             table["season_start_year"].isin(train_seasons)
@@ -163,7 +192,10 @@ class BaseballPregamePredictor:
         self.poisson.fit(train_df)
         self.pythagorean.fit(train_df)
         self.pitcher.fit(train_df)
+        self.park_factor.fit(train_df)
+        self.travel_rest.fit(train_df)
         self.elo.fit(train_df)
+        self.h2h.fit(train_df)
 
         self._use_stacking = use_stacking
         self._stacker = self.ensemble_cfg.get("stacker")
@@ -209,6 +241,22 @@ class BaseballPregamePredictor:
                 pitcher_games=self._pitcher_games,
             )
         )
+        row_df = row_df.assign(
+            **latest_park_columns(home=home, park_factors=self._park_factors)
+        )
+        row_df = row_df.assign(
+            **latest_h2h_columns(
+                self.games,
+                home=home,
+                away=away,
+                window=self._h2h_window,
+                shrink_k=self._h2h_shrink_k,
+            )
+        )
+        sched = latest_schedule_columns(home=home, away=away, games=self.games)
+        row_df["home_rest_days"] = sched.pop("home_rest_days", row_df["home_rest_days"])
+        row_df["away_rest_days"] = sched.pop("away_rest_days", row_df["away_rest_days"])
+        row_df = row_df.assign(**sched)
 
         member_preds: list[MemberPrediction] = [
             self.lgbm.predict(row_df),
@@ -217,7 +265,10 @@ class BaseballPregamePredictor:
             self.poisson.predict(row_df),
             self.pythagorean.predict(row_df),
             self.pitcher.predict(row_df),
+            self.park_factor.predict(row_df),
+            self.travel_rest.predict(row_df),
             self.elo.predict(row_df),
+            self.h2h.predict(row_df),
         ]
         if self._use_stacking:
             if not self._stacker:

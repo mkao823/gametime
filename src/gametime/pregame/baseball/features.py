@@ -33,6 +33,10 @@ FEATURE_COLUMNS = [
     "sp_fip_diff",
     "home_sp_rest_days",
     "away_sp_rest_days",
+    # park run environment (M2 / W6i)
+    "home_park_factor",
+    "park_factor_log",
+    "has_park_factor",
     # reserved for future ingest (0 until populated)
     "has_weather",
     "has_lineup",
@@ -160,6 +164,13 @@ def build_training_table(games: pd.DataFrame, *, form_window: int = 10) -> pd.Da
                 table[col] = 5.0
     if "has_starting_pitcher" not in table.columns:
         table["has_starting_pitcher"] = 0
+    for col, default in (
+        ("home_park_factor", 1.0),
+        ("park_factor_log", 0.0),
+        ("has_park_factor", 0),
+    ):
+        if col not in table.columns:
+            table[col] = default
     table = table.dropna(subset=FEATURE_COLUMNS[:8])
     return table
 
@@ -260,6 +271,9 @@ def build_inference_row(
         "home_sp_rest_days": 5.0,
         "away_sp_rest_days": 5.0,
         "has_starting_pitcher": 0,
+        "home_park_factor": 1.0,
+        "park_factor_log": 0.0,
+        "has_park_factor": 0,
         **rs,
     }
     row["form_off_diff"] = row["home_form_runs_scored"] - row["away_form_runs_scored"]

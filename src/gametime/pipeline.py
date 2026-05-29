@@ -60,6 +60,20 @@ def run_download(cfg: dict, root: Path) -> Path:
                 min_season=int(data_cfg.get("pitcher_min_season", 2024)),
                 cache_dir=cache_dir,
             )
+        park_out = resolve_path(
+            root,
+            data_cfg.get(
+                "park_factors_path", "data/mlb/processed/park_factors.parquet"
+            ),
+        )
+        if data_cfg.get("refresh_park_factors", False) or not park_out.exists():
+            from gametime.ingest.mlb_park import download_park_factors
+
+            download_park_factors(
+                out,
+                park_out,
+                min_home_games=int(data_cfg.get("park_min_home_games", 30)),
+            )
         return out
 
     data_cfg = cfg["data"]

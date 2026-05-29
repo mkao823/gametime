@@ -9,6 +9,9 @@ data:
   pitcher_games_path: data/mlb/processed/pitcher_games.parquet
   pitcher_min_season: 2024
   refresh_pitcher_games: false
+  park_factors_path: data/mlb/processed/park_factors.parquet
+  park_min_home_games: 30
+  refresh_park_factors: false
 
 train:
   model_dir: models/mlb/pregame
@@ -29,13 +32,17 @@ pregame:
   ensemble:
     enabled: true
     tune_weights: true
-    use_stacking: false
+    use_stacking: true
     stack_alpha: 1.0
     export_predictions: true
     min_member_weight: 0.05
+    max_member_weight: 0.45
     grid_step: 0.05
-    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, elo]
+    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, park_factor, travel_rest, elo, h2h]
     runs_strength_window: 30
+  h2h:
+    meeting_window: 10
+    shrink_k: 8
   elo:
     k: 4
     home_adv_runs: 0.15

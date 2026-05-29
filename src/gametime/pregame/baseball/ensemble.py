@@ -92,14 +92,22 @@ def _grid_search_target(
     *,
     step: float,
     min_member_weight: float = 0.05,
+    max_member_weight: float | None = None,
 ) -> tuple[dict[str, float], float]:
-    """Exhaustive grid on simplex (weights sum to 1) minimizing MAE for one target."""
+    """Exhaustive grid on simplex (weights sum to 1) minimizing MAE for one target.
+
+    ``min_member_weight`` / ``max_member_weight`` apply to this target only (total
+    and margin are searched independently in ``fit_weights``). When set,
+    ``max_member_weight`` rejects any candidate with a weight above the cap; weights
+    already sum to 1 on the grid, so no extra normalization is applied.
+    """
     if len(actual) == 0:
         equal = {name: 1.0 / len(member_names) for name in member_names}
         return equal, float("nan")
 
     n = len(member_names)
     floor = max(float(min_member_weight), 0.0)
+    cap = float(max_member_weight) if max_member_weight is not None else None
     grid = np.arange(0.0, 1.0 + step / 2, step)
     best_weights: dict[str, float] | None = None
     best_mae = float("inf")
@@ -108,6 +116,8 @@ def _grid_search_target(
     def _consider(weights: dict[str, float], mae: float) -> None:
         nonlocal best_weights, best_mae, best_balance
         if any(weights[name] < floor - 1e-9 for name in member_names):
+            return
+        if cap is not None and any(weights[name] > cap + 1e-9 for name in member_names):
             return
         balance = _weight_balance_score(weights, member_names)
         if mae < best_mae - 1e-9:
@@ -156,6 +166,7 @@ def fit_weights(
     *,
     step: float = 0.1,
     min_member_weight: float = 0.05,
+    max_member_weight: float | None = None,
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Tune per-target member weights on validation predictions only (grid search)."""
     member_names = _validate_members(member_predictions)
@@ -169,6 +180,7 @@ def fit_weights(
         actual_total,
         step=step,
         min_member_weight=min_member_weight,
+        max_member_weight=max_member_weight,
     )
     weights_margin, _ = _grid_search_target(
         margin_stacks,
@@ -176,6 +188,7 @@ def fit_weights(
         actual_margin,
         step=step,
         min_member_weight=min_member_weight,
+        max_member_weight=max_member_weight,
     )
     return weights_total, weights_margin
 
@@ -187,6 +200,7 @@ def fit_weights_with_metrics(
     *,
     step: float = 0.1,
     min_member_weight: float = 0.05,
+    max_member_weight: float | None = None,
 ) -> tuple[dict[str, float], dict[str, float], dict[str, Any]]:
     """fit_weights plus validation metrics for the tuned weighted ensemble."""
     weights_total, weights_margin = fit_weights(
@@ -195,6 +209,7 @@ def fit_weights_with_metrics(
         actual_margin,
         step=step,
         min_member_weight=min_member_weight,
+        max_member_weight=max_member_weight,
     )
     weighted = combine(
         member_predictions,
@@ -212,6 +227,7 @@ def fit_weights_with_metrics(
         else None,
         "grid_step": step,
         "min_member_weight": min_member_weight,
+        "max_member_weight": max_member_weight,
     }
     return weights_total, weights_margin, val_metrics
 

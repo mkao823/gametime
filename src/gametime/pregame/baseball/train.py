@@ -36,12 +36,22 @@ from gametime.pregame.baseball.models.pythagorean import (
     PythagoreanMember,
     attach_pythagorean,
 )
+from gametime.pregame.baseball.models.h2h import H2HMember, attach_h2h
+from gametime.pregame.baseball.models.park_factor import (
+    ParkFactorMember,
+    attach_park,
+)
 from gametime.pregame.baseball.models.pitcher import PitcherMember, attach_pitcher
 from gametime.pregame.baseball.models.runs_strength import (
     RunsStrengthMember,
     attach_runs_strength,
 )
+from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
+from gametime.pregame.baseball.models.travel_rest import (
+    TravelRestMember,
+    attach_travel_rest,
+)
 from gametime.pregame.baseball.prediction import (
     EnsemblePrediction,
     MemberPrediction,
@@ -129,11 +139,16 @@ def train_baseball_pregame(
     tune_ensemble_weights: bool = True,
     weight_grid_step: float = 0.1,
     min_member_weight: float = 0.05,
+    max_member_weight: float | None = None,
     stack_alpha: float = 1.0,
     export_predictions: bool = True,
     eval_dir: Path | None = None,
     elo_params: BaseballEloParams | None = None,
     pitcher_games_path: Path | None = None,
+    park_factors_path: Path | None = None,
+    league_total_fallback: float = 8.5,
+    h2h_window: int = 10,
+    h2h_shrink_k: float = 8.0,
 ) -> dict[str, Any]:
     games = pd.read_parquet(games_path)
     table = build_training_table(games, form_window=form_window)
@@ -143,11 +158,15 @@ def train_baseball_pregame(
         else load_pitcher_games(None)
     )
     table = attach_pitcher(table, pitcher_games)
+    park_factors = load_park_factors(park_factors_path)
+    table = attach_park(table, games, park_factors)
+    table = attach_travel_rest(table, games)
     table = attach_runs_strength(table, games, window=runs_strength_window)
     table = attach_poisson(table, games)
     table = attach_pythagorean(table, games)
     elo_params = elo_params or BaseballEloParams()
     table = attach_elo(table, games, params=elo_params)
+    table = attach_h2h(table, games, window=h2h_window, shrink_k=h2h_shrink_k)
     train_df, val_df, test_df = split_table_by_season(
         table,
         train_seasons=train_seasons,
@@ -180,8 +199,14 @@ def train_baseball_pregame(
     pythagorean.fit(train_df)
     pitcher = PitcherMember()
     pitcher.fit(train_df)
+    park_factor = ParkFactorMember()
+    park_factor.fit(train_df)
+    travel_rest = TravelRestMember()
+    travel_rest.fit(train_df)
     elo = EloMember(elo_params)
     elo.fit(train_df)
+    h2h = H2HMember(league_total_fallback=league_total_fallback)
+    h2h.fit(train_df)
 
     train_games = games[
         games["season_start_year"].isin(train_seasons)
@@ -201,7 +226,10 @@ def train_baseball_pregame(
         | PoissonMember
         | PythagoreanMember
         | PitcherMember
+        | ParkFactorMember
+        | TravelRestMember
         | EloMember
+        | H2HMember
     ] = [
         lgbm,
         heuristic,
@@ -209,7 +237,10 @@ def train_baseball_pregame(
         poisson,
         pythagorean,
         pitcher,
+        park_factor,
+        travel_rest,
         elo,
+        h2h,
     ]
     val_preds: dict[str, MemberPrediction] = {}
     test_preds: dict[str, MemberPrediction] = {}
@@ -233,6 +264,7 @@ def train_baseball_pregame(
             actual_margin_val,
             step=weight_grid_step,
             min_member_weight=min_member_weight,
+            max_member_weight=max_member_weight,
         )
         ensemble_weighted_val = combine(
             member_pred_list,
@@ -284,7 +316,9 @@ def train_baseball_pregame(
         "form_window": form_window,
         "runs_strength_window": runs_strength_window,
         "pitcher_games_path": str(pitcher_games_path) if pitcher_games_path else None,
+        "park_factors_path": str(park_factors_path) if park_factors_path else None,
         "has_starting_pitcher_frac": float((table["has_starting_pitcher"] == 1).mean()),
+        "has_park_factor_frac": float((table["has_park_factor"] == 1).mean()),
         "feature_columns": FEATURE_COLUMNS,
         "train_n": len(train_df),
         "val_n": len(val_df),
