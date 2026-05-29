@@ -426,6 +426,71 @@ def test_grid_search_respects_min_member_weight_eight_members():
     assert sum(weights_margin.values()) == pytest.approx(1.0, abs=1e-6)
 
 
+def test_grid_search_respects_max_member_weight():
+    """Dominant member is capped; uncapped search can exceed the cap."""
+    actual = np.array([9.0, 9.0, 9.0, 9.0])
+    stacks = {
+        "a": np.array([9.0, 9.0, 9.0, 9.0]),
+        "b": np.array([12.0, 6.0, 12.0, 6.0]),
+        "c": np.array([20.0, 20.0, 20.0, 20.0]),
+    }
+    names = ["a", "b", "c"]
+    cap = 0.45
+    uncapped, _ = _grid_search_target(
+        stacks, names, actual, step=0.1, min_member_weight=0.05
+    )
+    capped, _ = _grid_search_target(
+        stacks,
+        names,
+        actual,
+        step=0.1,
+        min_member_weight=0.05,
+        max_member_weight=cap,
+    )
+    assert max(uncapped.values()) > cap + 1e-9
+    assert max(capped.values()) <= cap + 1e-9
+    assert sum(capped.values()) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_fit_weights_respects_max_member_weight_per_target():
+    """Total and margin caps are enforced independently."""
+    cap = 0.45
+    actual_total = np.array([9.0, 9.0, 9.0, 9.0])
+    actual_margin = np.array([1.0, -1.0, 1.0, -1.0])
+    members = [
+        _member("a", [9.0, 9.0, 9.0, 9.0], [1.0, -1.0, 1.0, -1.0]),
+        _member("b", [12.0, 6.0, 12.0, 6.0], [2.0, -2.0, 2.0, -2.0]),
+        _member("c", [6.0, 12.0, 6.0, 12.0], [0.5, -0.5, 0.5, -0.5]),
+    ]
+    weights_total, weights_margin = fit_weights(
+        members,
+        actual_total,
+        actual_margin,
+        step=0.05,
+        min_member_weight=0.05,
+        max_member_weight=cap,
+    )
+    assert max(weights_total.values()) <= cap + 1e-9
+    assert max(weights_margin.values()) <= cap + 1e-9
+
+
+def test_fit_weights_with_metrics_records_max_member_weight():
+    members = [
+        _member("m1", [8.5, 9.5, 9.0], [2.0, -0.5, 0.0]),
+        _member("m2", [7.5, 10.5, 9.5], [1.5, -1.5, 1.0]),
+    ]
+    _, _, metrics = fit_weights_with_metrics(
+        members,
+        np.array([9.0, 9.0, 9.0]),
+        np.array([1.0, -1.0, 1.0]),
+        step=0.1,
+        max_member_weight=0.45,
+    )
+    assert metrics["max_member_weight"] == 0.45
+
+
+
+
 def test_attach_pitcher_missing_sidecar_uses_league_fallback():
     dates = pd.date_range("2024-04-01", periods=3, freq="D")
     games = pd.DataFrame(

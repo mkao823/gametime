@@ -134,6 +134,7 @@ def train_baseball_pregame(
     tune_ensemble_weights: bool = True,
     weight_grid_step: float = 0.1,
     min_member_weight: float = 0.05,
+    max_member_weight: float | None = None,
     stack_alpha: float = 1.0,
     export_predictions: bool = True,
     eval_dir: Path | None = None,
@@ -245,6 +246,7 @@ def train_baseball_pregame(
             actual_margin_val,
             step=weight_grid_step,
             min_member_weight=min_member_weight,
+            max_member_weight=max_member_weight,
         )
         ensemble_weighted_val = combine(
             member_pred_list,

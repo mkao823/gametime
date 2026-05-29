@@ -336,6 +336,11 @@ def pregame_train(argv=None):
             min_member_weight=float(
                 pg.get("ensemble", {}).get("min_member_weight", 0.05)
             ),
+            max_member_weight=(
+                float(mw)
+                if (mw := pg.get("ensemble", {}).get("max_member_weight")) is not None
+                else None
+            ),
             stack_alpha=float(pg.get("ensemble", {}).get("stack_alpha", 1.0)),
             export_predictions=bool(
                 pg.get("ensemble", {}).get("export_predictions", True)
