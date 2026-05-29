@@ -74,6 +74,23 @@ def run_download(cfg: dict, root: Path) -> Path:
                 park_out,
                 min_home_games=int(data_cfg.get("park_min_home_games", 30)),
             )
+        weather_out = resolve_path(
+            root,
+            data_cfg.get(
+                "weather_games_path", "data/mlb/processed/weather_games.parquet"
+            ),
+        )
+        if data_cfg.get("refresh_weather_games", False) or not weather_out.exists():
+            from gametime.ingest.mlb_weather import download_weather_games
+
+            weather_cache_dir = resolve_path(
+                root, data_cfg.get("weather_cache_dir", "data/mlb/raw/weather_open_meteo")
+            )
+            download_weather_games(
+                out,
+                weather_out,
+                cache_dir=weather_cache_dir,
+            )
         return out
 
     data_cfg = cfg["data"]

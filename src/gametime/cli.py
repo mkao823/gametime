@@ -235,7 +235,7 @@ def live(argv=None):
             )
         else:
             prior = resolve_live_prior(
-                root / lc["log_dir"],
+                log_dir=root / lc["log_dir"],
                 game_id=args.game_id,
                 home=args.home,
                 away=args.away,
@@ -356,6 +356,10 @@ def pregame_train(argv=None):
             / data_cfg.get(
                 "park_factors_path", "data/mlb/processed/park_factors.parquet"
             ),
+            weather_games_path=root
+            / data_cfg.get(
+                "weather_games_path", "data/mlb/processed/weather_games.parquet"
+            ),
             league_total_fallback=float(pg.get("league_total_fallback", 8.5)),
             h2h_window=int(h2h_cfg.get("meeting_window", 10)),
             h2h_shrink_k=float(h2h_cfg.get("shrink_k", 8.0)),
@@ -467,6 +471,9 @@ def pregame_slate(argv=None):
     park_factors_path = root / data_cfg.get(
         "park_factors_path", "data/mlb/processed/park_factors.parquet"
     )
+    weather_games_path = root / data_cfg.get(
+        "weather_games_path", "data/mlb/processed/weather_games.parquet"
+    )
     predictor = BaseballPregamePredictor(
         model_dir,
         games_path,
@@ -478,6 +485,7 @@ def pregame_slate(argv=None):
         elo_params=baseball_elo_params,
         pitcher_games_path=pitcher_games_path,
         park_factors_path=park_factors_path,
+        weather_games_path=weather_games_path,
     )
 
     is_playoff = not args.regular_season
@@ -612,6 +620,9 @@ def pregame_slate_backtest(argv=None):
     park_factors_path = root / data_cfg.get(
         "park_factors_path", "data/mlb/processed/park_factors.parquet"
     )
+    weather_games_path = root / data_cfg.get(
+        "weather_games_path", "data/mlb/processed/weather_games.parquet"
+    )
     use_stacking = bool(ensemble_cfg.get("use_stacking", False))
 
     daily_df, games_df = run_slate_backtest(
@@ -627,6 +638,7 @@ def pregame_slate_backtest(argv=None):
         elo_params=baseball_elo_params,
         pitcher_games_path=pitcher_games_path,
         park_factors_path=park_factors_path,
+        weather_games_path=weather_games_path,
         league_total_fallback=float(pg.get("league_total_fallback", 8.5)),
         h2h_window=int(h2h_cfg.get("meeting_window", 10)),
         h2h_shrink_k=float(h2h_cfg.get("shrink_k", 8.0)),
@@ -712,6 +724,9 @@ def pregame(argv=None):
         park_factors_path = root / data_cfg.get(
             "park_factors_path", "data/mlb/processed/park_factors.parquet"
         )
+        weather_games_path = root / data_cfg.get(
+            "weather_games_path", "data/mlb/processed/weather_games.parquet"
+        )
         predictor = BaseballPregamePredictor(
             model_dir,
             games_path,
@@ -723,6 +738,7 @@ def pregame(argv=None):
             elo_params=baseball_elo_params,
             pitcher_games_path=pitcher_games_path,
             park_factors_path=park_factors_path,
+            weather_games_path=weather_games_path,
             league_total_fallback=float(pg.get("league_total_fallback", 8.5)),
             h2h_window=int(h2h_cfg.get("meeting_window", 10)),
             h2h_shrink_k=float(h2h_cfg.get("shrink_k", 8.0)),

@@ -37,8 +37,13 @@ FEATURE_COLUMNS = [
     "home_park_factor",
     "park_factor_log",
     "has_park_factor",
-    # reserved for future ingest (0 until populated)
+    # weather sidecar (M3 / W6j)
+    "temp_f",
+    "wind_mph",
+    "humidity_pct",
+    "is_dome",
     "has_weather",
+    # reserved for future ingest
     "has_lineup",
     "has_starting_pitcher",
 ]
@@ -152,7 +157,15 @@ def build_training_table(games: pd.DataFrame, *, form_window: int = 10) -> pd.Da
         table["home_form_runs_scored"] + table["away_form_runs_scored"]
     )
     table["is_playoff"] = (table["seasontype"] == "po").astype(int)
-    table["has_weather"] = 0
+    for col, default in (
+        ("temp_f", 70.0),
+        ("wind_mph", 0.0),
+        ("humidity_pct", 50.0),
+        ("is_dome", 0),
+        ("has_weather", 0),
+    ):
+        if col not in table.columns:
+            table[col] = default
     table["has_lineup"] = 0
     for col in ("home_sp_fip", "away_sp_fip", "sp_fip_diff", "home_sp_rest_days", "away_sp_rest_days"):
         if col not in table.columns:
@@ -263,6 +276,10 @@ def build_inference_row(
         "home_win_streak": float(h["win_streak"]),
         "away_win_streak": float(a["win_streak"]),
         "is_playoff": int(bool(is_playoff)),
+        "temp_f": 70.0,
+        "wind_mph": 0.0,
+        "humidity_pct": 50.0,
+        "is_dome": 0,
         "has_weather": 0,
         "has_lineup": 0,
         "home_sp_fip": LEAGUE_FIP,

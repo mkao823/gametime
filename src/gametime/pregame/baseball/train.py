@@ -48,10 +48,12 @@ from gametime.pregame.baseball.models.runs_strength import (
 )
 from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
+from gametime.ingest.mlb_weather import load_weather_games
 from gametime.pregame.baseball.models.travel_rest import (
     TravelRestMember,
     attach_travel_rest,
 )
+from gametime.pregame.baseball.models.weather import WeatherMember, attach_weather
 from gametime.pregame.baseball.prediction import (
     EnsemblePrediction,
     MemberPrediction,
@@ -123,6 +125,26 @@ def _metrics(pred_total: np.ndarray, pred_margin: np.ndarray, df: pd.DataFrame) 
     }
 
 
+def _member_total_error_corr(
+    preds: dict[str, MemberPrediction],
+    actual_total: np.ndarray,
+) -> dict[str, dict[str, float]]:
+    if len(actual_total) == 0 or not preds:
+        return {}
+    errors = {
+        name: (pred.total - actual_total)
+        for name, pred in preds.items()
+        if len(pred.total) == len(actual_total)
+    }
+    if not errors:
+        return {}
+    corr = pd.DataFrame(errors).corr()
+    out: dict[str, dict[str, float]] = {}
+    for col in corr.columns:
+        out[col] = {idx: float(val) for idx, val in corr[col].items() if pd.notna(val)}
+    return out
+
+
 def train_baseball_pregame(
     *,
     games_path: Path,
@@ -146,6 +168,7 @@ def train_baseball_pregame(
     elo_params: BaseballEloParams | None = None,
     pitcher_games_path: Path | None = None,
     park_factors_path: Path | None = None,
+    weather_games_path: Path | None = None,
     league_total_fallback: float = 8.5,
     h2h_window: int = 10,
     h2h_shrink_k: float = 8.0,
@@ -160,6 +183,8 @@ def train_baseball_pregame(
     table = attach_pitcher(table, pitcher_games)
     park_factors = load_park_factors(park_factors_path)
     table = attach_park(table, games, park_factors)
+    weather_games = load_weather_games(weather_games_path)
+    table = attach_weather(table, weather_games)
     table = attach_travel_rest(table, games)
     table = attach_runs_strength(table, games, window=runs_strength_window)
     table = attach_poisson(table, games)
@@ -203,6 +228,8 @@ def train_baseball_pregame(
     park_factor.fit(train_df)
     travel_rest = TravelRestMember()
     travel_rest.fit(train_df)
+    weather = WeatherMember()
+    weather.fit(train_df)
     elo = EloMember(elo_params)
     elo.fit(train_df)
     h2h = H2HMember(league_total_fallback=league_total_fallback)
@@ -228,6 +255,7 @@ def train_baseball_pregame(
         | PitcherMember
         | ParkFactorMember
         | TravelRestMember
+        | WeatherMember
         | EloMember
         | H2HMember
     ] = [
@@ -238,6 +266,7 @@ def train_baseball_pregame(
         pythagorean,
         pitcher,
         park_factor,
+        weather,
         travel_rest,
         elo,
         h2h,
@@ -317,8 +346,24 @@ def train_baseball_pregame(
         "runs_strength_window": runs_strength_window,
         "pitcher_games_path": str(pitcher_games_path) if pitcher_games_path else None,
         "park_factors_path": str(park_factors_path) if park_factors_path else None,
+        "weather_games_path": str(weather_games_path) if weather_games_path else None,
         "has_starting_pitcher_frac": float((table["has_starting_pitcher"] == 1).mean()),
         "has_park_factor_frac": float((table["has_park_factor"] == 1).mean()),
+        "weather_sidecar_rows": int(len(weather_games)),
+        "weather_sidecar_min_date": (
+            pd.to_datetime(weather_games["game_date"]).min().date().isoformat()
+            if not weather_games.empty and "game_date" in weather_games.columns
+            else None
+        ),
+        "weather_sidecar_max_date": (
+            pd.to_datetime(weather_games["game_date"]).max().date().isoformat()
+            if not weather_games.empty and "game_date" in weather_games.columns
+            else None
+        ),
+        "has_weather_frac": float((table["has_weather"] == 1).mean()),
+        "has_weather_frac_train": float((train_df["has_weather"] == 1).mean()) if len(train_df) else 0.0,
+        "has_weather_frac_val": float((val_df["has_weather"] == 1).mean()) if len(val_df) else 0.0,
+        "has_weather_frac_test": float((test_df["has_weather"] == 1).mean()) if len(test_df) else 0.0,
         "feature_columns": FEATURE_COLUMNS,
         "train_n": len(train_df),
         "val_n": len(val_df),
@@ -331,6 +376,13 @@ def train_baseball_pregame(
                 "test": _metrics(test_preds[name].total, test_preds[name].margin, test_df),
             }
             for name in val_preds
+        },
+        "decorrelation": {
+            "val_total_error_corr": _member_total_error_corr(val_preds, actual_total_val),
+            "test_total_error_corr": _member_total_error_corr(
+                test_preds,
+                test_df[TARGET_TOTAL].to_numpy(),
+            ),
         },
         "ensemble_equal": {
             "val": _metrics(ensemble_equal_val.total, ensemble_equal_val.margin, val_df),
