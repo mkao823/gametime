@@ -50,6 +50,11 @@ from gametime.pregame.baseball.models.runs_strength import (
 from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.ingest.mlb_weather import load_weather_games
+from gametime.pregame.baseball.models.series_context import (
+    SeriesContextMember,
+    attach_series_context,
+    latest_series_context_columns,
+)
 from gametime.pregame.baseball.models.travel_rest import (
     TravelRestMember,
     attach_travel_rest,
@@ -160,6 +165,7 @@ class BaseballPregamePredictor:
         self.pitcher = PitcherMember()
         self.park_factor = ParkFactorMember()
         self.travel_rest = TravelRestMember()
+        self.series_context = SeriesContextMember()
         self.elo_params = elo_params or BaseballEloParams()
         self.elo = EloMember(self.elo_params)
         self.h2h = H2HMember(league_total_fallback=league_total_fallback)
@@ -180,6 +186,7 @@ class BaseballPregamePredictor:
         table = attach_park(table, self.games, self._park_factors)
         table = attach_weather(table, self._weather_games)
         table = attach_travel_rest(table, self.games)
+        table = attach_series_context(table, self.games)
         table = attach_runs_strength(
             table, self.games, window=self.runs_strength_window
         )
@@ -205,6 +212,7 @@ class BaseballPregamePredictor:
         self.pitcher.fit(train_df)
         self.park_factor.fit(train_df)
         self.travel_rest.fit(train_df)
+        self.series_context.fit(train_df)
         self.weather = WeatherMember()
         self.weather.fit(train_df)
         self.elo.fit(train_df)
@@ -273,6 +281,9 @@ class BaseballPregamePredictor:
         row_df["home_rest_days"] = sched.pop("home_rest_days", row_df["home_rest_days"])
         row_df["away_rest_days"] = sched.pop("away_rest_days", row_df["away_rest_days"])
         row_df = row_df.assign(**sched)
+        row_df = row_df.assign(
+            **latest_series_context_columns(self.games, home=home, away=away)
+        )
 
         member_preds: list[MemberPrediction] = [
             self.lgbm.predict(row_df),
@@ -284,6 +295,7 @@ class BaseballPregamePredictor:
             self.park_factor.predict(row_df),
             self.weather.predict(row_df),
             self.travel_rest.predict(row_df),
+            self.series_context.predict(row_df),
             self.elo.predict(row_df),
             self.h2h.predict(row_df),
         ]

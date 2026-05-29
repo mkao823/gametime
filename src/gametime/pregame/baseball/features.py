@@ -46,6 +46,13 @@ FEATURE_COLUMNS = [
     # reserved for future ingest
     "has_lineup",
     "has_starting_pitcher",
+    # series context (W6o; games.parquet only)
+    "series_game_num",
+    "is_series_finale",
+    "prior_game_total",
+    "prior_game_margin",
+    "last_series_games",
+    "has_series_context",
 ]
 
 LEAGUE_FIP = 4.20
