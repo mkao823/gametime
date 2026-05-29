@@ -15,6 +15,11 @@ data:
   weather_games_path: data/mlb/processed/weather_games.parquet
   weather_cache_dir: data/mlb/raw/weather_open_meteo
   refresh_weather_games: false
+  # M4 lineup sidecar (pybaseball team wOBA + MLB boxscore lineups; 2024+)
+  lineup_games_path: data/mlb/processed/lineup_games.parquet
+  lineup_cache_dir: data/mlb/raw/lineup_woba
+  lineup_min_season: 2024
+  refresh_lineup_games: false
 
 train:
   model_dir: models/mlb/pregame
@@ -41,7 +46,7 @@ pregame:
     min_member_weight: 0.05
     max_member_weight: 0.45
     grid_step: 0.05
-    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, park_factor, weather, travel_rest, series_context, elo, h2h]
+    members: [lgbm, heuristic, runs_strength, poisson, pythagorean, pitcher, park_factor, weather, lineup, travel_rest, series_context, elo, h2h]
     runs_strength_window: 30
   h2h:
     meeting_window: 10
