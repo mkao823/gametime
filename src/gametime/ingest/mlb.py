@@ -24,6 +24,21 @@ DEFAULT_TEAMS = (
     "PHI", "PIT", "SDP", "SEA", "SFG", "STL", "TBR", "TEX", "TOR", "WSN",
 )
 
+# BR schedule slug: OAK through 2025, ATH from 2026 (Athletics relocation)
+_ATHLETICS_BR_SWITCH_SEASON = 2026
+
+
+def teams_for_season(
+    season_start_year: int,
+    base: Optional[Iterable[str]] = None,
+) -> tuple[str, ...]:
+    """pybaseball team codes for schedule_and_record (season-aware Athletics slug)."""
+    src = tuple(base or DEFAULT_TEAMS)
+    if int(season_start_year) >= _ATHLETICS_BR_SWITCH_SEASON:
+        return tuple("ATH" if t == "OAK" else t for t in src)
+    return src
+
+
 # Normalize pybaseball abbreviations → canonical
 _TEAM_ALIASES = {
     "AZ": "ARI",
@@ -176,7 +191,7 @@ def fetch_slate_from_pybaseball(
 
     cache.enable()
     td = pd.Timestamp(target_date).normalize()
-    team_list = list(teams or DEFAULT_TEAMS)
+    team_list = list(teams_for_season(season_start_year, teams))
     by_id: dict[str, dict[str, str]] = {}
 
     for team in team_list:
@@ -306,10 +321,10 @@ def build_games_table(
     seasons: Iterable[int],
     teams: Optional[Iterable[str]] = None,
 ) -> pd.DataFrame:
-    teams = list(teams or DEFAULT_TEAMS)
     frames = []
     for season in seasons:
-        for team in teams:
+        season_teams = list(teams_for_season(season, teams))
+        for team in season_teams:
             try:
                 chunk = fetch_team_season(team, int(season))
                 if not chunk.empty:
@@ -341,12 +356,33 @@ def download_mlb_games(
     *,
     seasons: list[int],
     teams: Optional[list[str]] = None,
+    statsapi_backfill_days: int = 14,
+    statsapi_game_types: Optional[list[str]] = None,
+    statsapi_postseason_enabled: bool = False,
+    statsapi_postseason_types: Optional[list[str]] = None,
 ) -> Path:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     games = build_games_table(seasons, teams)
     if games.empty:
         raise ValueError(f"No MLB games fetched for seasons={seasons}")
+
+    from gametime.ingest.mlb_statsapi_games import merge_statsapi_into_games
+
+    rs_types = tuple(statsapi_game_types or ("R",))
+    po_types: tuple[str, ...] = ()
+    if statsapi_postseason_enabled:
+        po_types = tuple(statsapi_postseason_types or ("P", "F", "W", "D", "L"))
+
+    games = merge_statsapi_into_games(
+        games,
+        backfill_days=int(statsapi_backfill_days),
+        game_types=rs_types,
+        postseason_types=po_types,
+    )
+    if games.empty:
+        raise ValueError(f"No MLB games after pybaseball + Stats API merge seasons={seasons}")
+
     games.to_parquet(out_path, index=False)
     print(f"[mlb] Wrote {len(games)} games → {out_path}")
     return out_path

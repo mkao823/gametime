@@ -1,6 +1,6 @@
 # MLB pregame operations
 
-Production workflow for the six-member MLB pregame ensemble (`lgbm`, `heuristic`, `runs_strength`, `poisson`, `pythagorean`, `elo`). No `ODDS_API_KEY` required.
+Production workflow for the MLB pregame ensemble (see `configs/mlb.yaml` `pregame.ensemble.members`). No `ODDS_API_KEY` required.
 
 ## Setup
 
@@ -19,6 +19,24 @@ python3 -m gametime.cli <command> ...
 
 `configs/mlb.yaml` lists `data.seasons` through the current MLB year so form/Elo/Poisson see recent results.
 
+### Hybrid `games.parquet` (pybaseball + MLB Stats API)
+
+| Step | What happens |
+|------|----------------|
+| 1 | **pybaseball** rebuilds bulk game logs (Baseball Reference team schedules). |
+| 2 | **MLB Stats API** backfills any **Final** dates still missing through yesterday (fixes 1–3 day BR lag). |
+
+Config (after [W6-statsapi-games](mlb_ensemble_roadmap.md#w6-statsapi-games--copy-paste-worker-prompt) ships):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `games_statsapi_backfill_days` | `14` | Re-pull last N calendar days from Stats API each download |
+| `games_statsapi_game_types` | `[R]` | Regular-season finals |
+| `games_statsapi_postseason_enabled` | `false` | Set **`true` in October** for playoff game ingest |
+| `games_statsapi_postseason_types` | `[P, F, W, D, L]` | Postseason `gameType` codes when enabled |
+
+**Playoffs:** Before playoff slates, set `games_statsapi_postseason_enabled: true`, run `gametime-download`, and use `gametime-pregame` / slate **without** `--regular-season` (or equivalent `is_playoff`). Until then, incremental ingest is RS-only.
+
 ```bash
 gametime-download --config configs/mlb.yaml
 ```
@@ -33,6 +51,8 @@ g['game_date'] = pd.to_datetime(g['game_date'])
 print('rows', len(g), 'max_date', g['game_date'].max().date())
 "
 ```
+
+If `max_date` is more than one day behind, slate preds will not update day-over-day (stale form/Elo). Re-run download after W6-statsapi-games is merged, or check pybaseball/Stats API availability.
 
 ## Train artifacts
 

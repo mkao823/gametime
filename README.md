@@ -18,7 +18,7 @@ MLB pregame predicts **total runs** and **home margin** (winner from margin sign
 3. **Ridge stacking (production)** — With `use_stacking: true`, final preds are a ridge meta-model on member outputs (coefficients fit on val, frozen for test/inference). Slate backtest and `gametime-pregame` use stacking when enabled.
 4. **No leakage** — Features and sidecars use only information available before first pitch; retro slate backtest uses `game_date < slate_date`.
 
-### Current members (12)
+### Current members (see `configs/mlb.yaml`; typically 13)
 
 | Member | Signal |
 |--------|--------|
@@ -30,6 +30,7 @@ MLB pregame predicts **total runs** and **home margin** (winner from margin sign
 | `pitcher` | Starting pitcher quality (M1 sidecar) |
 | `park_factor` | Home park run environment |
 | `weather` | Game-time weather (Open-Meteo sidecar) |
+| `lineup` | Lineup wOBA / platoon (M4 sidecar) |
 | `travel_rest` | Schedule fatigue (rest, games in 3d, road streak) |
 | `series_context` | Same-opponent series game index + prior-game style |
 | `elo` | Baseball Elo ratings |
@@ -44,10 +45,21 @@ MLB pregame predicts **total runs** and **home margin** (winner from margin sign
 | M1 Starting pitcher | `pitcher` | Shipped |
 | M2 Park factors | `park_factor` | Shipped |
 | M3 Weather | `weather` | Shipped |
-| M4 Lineups | `lineup` | W6k |
+| M4 Lineups | `lineup` | Shipped (W6k) |
 | M5 Historical odds | `market` member | Deferred (no `ODDS_API_KEY`) |
 
 Placeholder columns in `FEATURE_COLUMNS` (`has_lineup`, etc.) flip to `1` when ingest populates real data.
+
+### Game data (hybrid ingest)
+
+| Layer | Source | Role |
+|-------|--------|------|
+| **Bulk history** | pybaseball `schedule_and_record` | Full-season rebuild of `games.parquet` (completed games with `R`/`RA`) |
+| **Recent gap-fill** | MLB Stats API (`statsapi.mlb.com`) | After each download, append **Final** games through yesterday when BR lags |
+
+Config (`configs/mlb.yaml`): `games_statsapi_backfill_days`, `games_statsapi_game_types` (default `[R]`). For **playoffs**, set `games_statsapi_postseason_enabled: true` and use `games_statsapi_postseason_types` (`P`, `W`, `F`, `D`, `L`) — see [roadmap W6-statsapi-games](docs/mlb_ensemble_roadmap.md#w6-statsapi-games--copy-paste-worker-prompt).
+
+Daily check: `max(game_date)` in parquet should be **≥ yesterday** before running slate.
 
 ### MLB commands
 

@@ -41,6 +41,14 @@ def run_download(cfg: dict, root: Path) -> Path:
             out,
             seasons=[int(s) for s in data_cfg["seasons"]],
             teams=list(sport.mlb_teams) if sport.mlb_teams else None,
+            statsapi_backfill_days=int(data_cfg.get("games_statsapi_backfill_days", 14)),
+            statsapi_game_types=list(data_cfg.get("games_statsapi_game_types", ["R"])),
+            statsapi_postseason_enabled=bool(
+                data_cfg.get("games_statsapi_postseason_enabled", False)
+            ),
+            statsapi_postseason_types=list(
+                data_cfg.get("games_statsapi_postseason_types", ["P", "F", "W", "D", "L"])
+            ),
         )
         pitcher_out = resolve_path(
             root,
