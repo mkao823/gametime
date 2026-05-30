@@ -429,6 +429,12 @@ def pregame_slate(argv=None):
     p.add_argument("--season", type=int, default=None, help="MLB season_start_year override")
     p.add_argument("--regular-season", action="store_true", help="Regular-season games only")
     p.add_argument("--no-log", action="store_true")
+    p.add_argument(
+        "--decimals",
+        type=int,
+        default=2,
+        help="Decimal places for total/margin in slate table output",
+    )
     args = p.parse_args(argv)
 
     if args.date:
@@ -504,7 +510,9 @@ def pregame_slate(argv=None):
     for m in matchups:
         away, home = m["away"], m["home"]
         try:
-            pred = predictor.predict(home=home, away=away, is_playoff=is_playoff)
+            pred = predictor.predict(
+                home=home, away=away, is_playoff=is_playoff, game_date=slate_date
+            )
         except Exception as exc:
             errors.append(f"{away} @ {home}: {exc}")
             continue
@@ -525,13 +533,16 @@ def pregame_slate(argv=None):
 
     print(f"MLB slate {slate_date.isoformat()}  ({len(rows)} games, season {season})")
     if rows:
+        dec = max(0, int(args.decimals))
+        num_w = max(6, dec + 4)
         w_matchup = max(len(r["matchup"]) for r in rows)
-        header = f"{'Matchup':<{w_matchup}}  {'Total':>6}  {'Margin':>7}  Winner"
+        header = f"{'Matchup':<{w_matchup}}  {'Total':>{num_w}}  {'Margin':>{num_w + 1}}  Winner"
         print(header)
         print("-" * len(header))
         for r in rows:
             print(
-                f"{r['matchup']:<{w_matchup}}  {r['total']:6.1f}  {r['margin']:+7.1f}  {r['winner']}"
+                f"{r['matchup']:<{w_matchup}}  {r['total']:{num_w}.{dec}f}  "
+                f"{r['margin']:+{num_w + 1}.{dec}f}  {r['winner']}"
             )
     if errors:
         print("\nSkipped:", file=sys.stderr)

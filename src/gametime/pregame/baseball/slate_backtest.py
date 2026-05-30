@@ -244,7 +244,9 @@ def run_slate_backtest_day(
         home = act["home_team"]
         away = act["away_team"]
         try:
-            pred = predictor.predict(home=home, away=away, is_playoff=is_playoff)
+            pred = predictor.predict(
+                home=home, away=away, is_playoff=is_playoff, game_date=slate_date
+            )
         except Exception as exc:
             scored.append(
                 {
