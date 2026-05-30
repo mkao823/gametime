@@ -5,6 +5,11 @@ sport: mlb
 data:
   seasons: [2021, 2022, 2023, 2024, 2025, 2026]
   games_path: data/mlb/processed/games.parquet
+  # M0 hybrid games: pybaseball bulk + MLB Stats API gap-fill (see docs/mlb_pregame_ops.md)
+  games_statsapi_backfill_days: 14
+  games_statsapi_game_types: [R]
+  games_statsapi_postseason_enabled: false
+  games_statsapi_postseason_types: [P, F, W, D, L]
   # M1 starting pitcher sidecar (MLB Stats API; 2024+). Run gametime-download to refresh.
   pitcher_games_path: data/mlb/processed/pitcher_games.parquet
   pitcher_min_season: 2024
