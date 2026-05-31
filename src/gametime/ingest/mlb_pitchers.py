@@ -455,6 +455,7 @@ def download_pitcher_games(
     min_season: int = 2024,
     cache_dir: Optional[Path] = None,
     pause: float = 0.12,
+    max_dates: Optional[int] = None,
 ) -> Path:
     """Build or refresh pitcher sidecar from games.parquet."""
     games = pd.read_parquet(games_path)
@@ -463,6 +464,7 @@ def download_pitcher_games(
         min_season=min_season,
         cache_dir=cache_dir,
         pause=pause,
+        max_dates=max_dates,
     )
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

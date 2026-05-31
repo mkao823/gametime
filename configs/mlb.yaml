@@ -10,21 +10,25 @@ data:
   games_statsapi_game_types: [R]
   games_statsapi_postseason_enabled: false
   games_statsapi_postseason_types: [P, F, W, D, L]
-  # M1 starting pitcher sidecar (MLB Stats API; 2024+). Run gametime-download to refresh.
+  # M1 starting pitcher sidecar (MLB Stats API). min_season = earliest train season (W10).
   pitcher_games_path: data/mlb/processed/pitcher_games.parquet
-  pitcher_min_season: 2024
+  pitcher_cache_dir: data/mlb/raw/pitcher_boxscores
+  pitcher_min_season: 2021
   refresh_pitcher_games: false
+  # pitcher_max_dates: 3  # dev smoke only — limit Stats API dates per download
   park_factors_path: data/mlb/processed/park_factors.parquet
   park_min_home_games: 30
   refresh_park_factors: false
   weather_games_path: data/mlb/processed/weather_games.parquet
   weather_cache_dir: data/mlb/raw/weather_open_meteo
   refresh_weather_games: false
-  # M4 lineup sidecar (pybaseball team wOBA + MLB boxscore lineups; 2024+)
+  # M4 lineup sidecar (MLB boxscore batting order + cumulative wOBA; W10 backfill from 2021)
   lineup_games_path: data/mlb/processed/lineup_games.parquet
   lineup_cache_dir: data/mlb/raw/lineup_woba
-  lineup_min_season: 2024
+  lineup_min_season: 2021
   refresh_lineup_games: false
+  # lineup_max_dates: 3  # dev smoke only — limit Stats API dates per download
+  sidecar_train_min_frac: 0.85
 
 train:
   model_dir: models/mlb/pregame

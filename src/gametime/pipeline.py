@@ -30,6 +30,53 @@ def v3_archive_seasons(data_cfg: dict) -> list[int]:
     return seasons
 
 
+def _sidecar_train_coverage_frac(
+    games_path: Path,
+    sidecar_path: Path,
+    train_seasons: list[int],
+    flag_col: str,
+    *,
+    seasontype: str = "rg",
+) -> float:
+    """Fraction of train-season RS games with ``flag_col == 1`` in the sidecar."""
+    if not sidecar_path.exists():
+        return 0.0
+    games = pd.read_parquet(games_path)
+    sidecar = pd.read_parquet(sidecar_path)
+    if sidecar.empty or flag_col not in sidecar.columns:
+        return 0.0
+    train = games[
+        games["season_start_year"].isin(train_seasons)
+        & (games.get("seasontype", seasontype) == seasontype)
+    ]
+    if train.empty:
+        return 1.0
+    merged = train[["game_id"]].merge(
+        sidecar[["game_id", flag_col]].drop_duplicates("game_id"),
+        on="game_id",
+        how="left",
+    )
+    return float((merged[flag_col].fillna(0).astype(int) == 1).mean())
+
+
+def _sidecar_needs_train_backfill(
+    games_path: Path,
+    sidecar_path: Path,
+    train_seasons: list[int],
+    flag_col: str,
+    *,
+    min_frac: float = 0.85,
+    seasontype: str = "rg",
+) -> bool:
+    return _sidecar_train_coverage_frac(
+        games_path,
+        sidecar_path,
+        train_seasons,
+        flag_col,
+        seasontype=seasontype,
+    ) < min_frac
+
+
 def run_download(cfg: dict, root: Path) -> Path:
     sport = get_sport(cfg)
     if sport.family == "baseball":
@@ -56,7 +103,24 @@ def run_download(cfg: dict, root: Path) -> Path:
                 "pitcher_games_path", "data/mlb/processed/pitcher_games.parquet"
             ),
         )
-        if data_cfg.get("refresh_pitcher_games", False) or not pitcher_out.exists():
+        train_seasons = [int(s) for s in cfg.get("train", {}).get("train_seasons", [])]
+        sidecar_min_frac = float(data_cfg.get("sidecar_train_min_frac", 0.85))
+        pitcher_max_dates = data_cfg.get("pitcher_max_dates")
+        needs_pitcher = (
+            data_cfg.get("refresh_pitcher_games", False)
+            or not pitcher_out.exists()
+            or (
+                train_seasons
+                and _sidecar_needs_train_backfill(
+                    out,
+                    pitcher_out,
+                    train_seasons,
+                    "has_starting_pitcher",
+                    min_frac=sidecar_min_frac,
+                )
+            )
+        )
+        if needs_pitcher:
             from gametime.ingest.mlb_pitchers import download_pitcher_games
 
             cache_dir = resolve_path(
@@ -67,6 +131,7 @@ def run_download(cfg: dict, root: Path) -> Path:
                 pitcher_out,
                 min_season=int(data_cfg.get("pitcher_min_season", 2024)),
                 cache_dir=cache_dir,
+                max_dates=int(pitcher_max_dates) if pitcher_max_dates is not None else None,
             )
         park_out = resolve_path(
             root,
@@ -105,7 +170,22 @@ def run_download(cfg: dict, root: Path) -> Path:
                 "lineup_games_path", "data/mlb/processed/lineup_games.parquet"
             ),
         )
-        if data_cfg.get("refresh_lineup_games", False) or not lineup_out.exists():
+        lineup_max_dates = data_cfg.get("lineup_max_dates")
+        needs_lineup = (
+            data_cfg.get("refresh_lineup_games", False)
+            or not lineup_out.exists()
+            or (
+                train_seasons
+                and _sidecar_needs_train_backfill(
+                    out,
+                    lineup_out,
+                    train_seasons,
+                    "has_lineup",
+                    min_frac=sidecar_min_frac,
+                )
+            )
+        )
+        if needs_lineup:
             from gametime.ingest.mlb_lineup import download_lineup_games
 
             lineup_cache = resolve_path(
@@ -121,6 +201,7 @@ def run_download(cfg: dict, root: Path) -> Path:
                 min_season=int(data_cfg.get("lineup_min_season", 2024)),
                 cache_dir=lineup_cache,
                 boxscore_cache_dir=box_cache,
+                max_dates=int(lineup_max_dates) if lineup_max_dates is not None else None,
             )
         return out
 
