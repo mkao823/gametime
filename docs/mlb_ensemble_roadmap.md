@@ -16,6 +16,27 @@ Combine several **member models** (different approaches) into one pregame predic
 
 ---
 
+## Current state (May 2026)
+
+Production track is **`main`** (direct merge; `feature/mlb-ensemble-integration` exists but ops uses `main`).
+
+| Area | Status |
+|------|--------|
+| Phases P0–P4, W6b–W6g, W6d–W6e, W6-eval, W6-max-weight, W6-stack-prod | ✅ Merged |
+| D-tier members W6h–W6k, W6m–W6o | ✅ Merged — **13 members** in `ensemble.json` |
+| W6-statsapi-games, W7 slate, W8 slate backtest | ✅ Merged |
+| W6-sp-live-fip + slate precision | ✅ Merged — live Prob SP + distinct FIP on slate |
+| W6-eval 13-member refresh | ✅ Merged — holdout go/no-go in `docs/mlb_pregame_ops.md` |
+| Production blend | **`use_stacking: false`** (linear weights) — 2025 test winner 55.7% vs stacked 53.9% |
+| **W6l XGBoost** | ❌ **Do not assign** — [W6-eval decorrelation audit](#w6-eval--holdout-splits-recommended) |
+| **W6a Vegas** | ⏸ Deferred — no `ODDS_API_KEY` |
+
+**Daily ops:** `gametime-download` → `gametime-pregame-slate --regular-season --decimals 2` (no `pregame-train` unless members/splits change). See `docs/mlb_pregame_ops.md`.
+
+**Quality audits:** re-run `gametime-pregame-train` and inspect `reports/mlb/eval/pregame_summary.json`, `val_predictions.parquet`, `test_predictions.parquet` — see [W6-eval](#w6-eval--holdout-splits-recommended).
+
+---
+
 ## v1 status (shipped on `feature/mlb-ensemble-integration`)
 
 | Piece | Path / signal |
@@ -124,14 +145,11 @@ Metrics below are **val 2024 / test 2025** (re-run train after config or member 
 
 | Order | Window | Branch | Focus | When |
 |-------|--------|--------|-------|------|
-| 0 | **W6-eval** | `w6-eval-holdout` | Val 2024, **test 2025** RS; report all blend modes | ✅ Shipped in `configs/mlb.yaml`; re-run if splits change |
-| 1 (quick) | **W6-stack-prod** | `w6-stack-prod` | Set `use_stacking: true` if 2025 holdout agrees; document in ops | After W6-eval or if user accepts val-only |
-| 1b (quick) | **W6-max-weight** | `w6-max-weight` | Cap per-member weight (e.g. 0.40–0.50) in `fit_weights` | If collapse persists after W6e floor |
-| **2 ▶ NEXT** | **W6h** | `w6h-pitcher` | M1 ingest + SP/bullpen features + `pitcher` member + LGBM columns | **User-directed next window** — [full prompt](#w6h--pitcher-copy-paste-worker-prompt) |
-| 3 | **W6i** | `w6i-park` | Park factor on total (M2) | After W6h merged |
-| 4 | **W6j** / **W6k** | `w6j-weather`, `w6k-lineup` | Weather, lineup (M3, M4) | When ingest exists |
-| 5 | **W6a** | `w6a-vegas` | Market blend / member | ⏸ deferred — needs odds |
-| — (low) | **W6l–W6n** | `w6l-xgb`, … | Tree duplicate, H2H, travel | Only if decorrelation audit says so |
+| — | **Maintenance** | — | `gametime-download` + slate; no new members | **Default after May 2026 ship** |
+| 0 | **W6-eval refresh** | `w6-eval-13member-refresh` | 13-member val/test + decorrelation audit | ✅ May 2026; re-run if splits or members change |
+| 1 | **Linear prod blend** | `w6-stack-linear-prod` | `use_stacking: false` at inference | ✅ Shipped per W6-eval go/no-go |
+| 2 | **W6a** | `w6a-vegas` | Market blend / member | ⏸ deferred — needs odds |
+| — | **W6l XGBoost** | `w6l-xgb` | XGB on same `FEATURE_COLUMNS` as LGBM | ❌ **Gated out** — see [W6l](#w6l--xgboost-gated) |
 
 **Do not prioritize:** W6l (XGB on same columns as LGBM), extra form heuristics, or finer grid alone without new signal.
 
@@ -231,7 +249,7 @@ You **always** update members (and LGBM when features change) **before** refitti
 
 #### Stacking go/no-go (after W6-eval)
 
-On **2025 test** (current snapshot): `ensemble_stacked` beats linear on **total MAE** (~3.60 vs ~3.61) but **loses on winner%** (~54% vs ~55%). Recommend `use_stacking: false` until margin/winner is evaluated for stacked outputs, or product accepts the winner hit. See [W6-stack-prod](#w6-stack-prod--enable-stacking-at-inference).
+**13-member holdout (May 2026, 2025 test):** `ensemble_stacked` beats linear on total MAE (**3.582 vs 3.609**) and margin MAE (**3.500 vs 3.505**) but **loses on winner%** (**53.9% vs 55.7%**). Production ships **`use_stacking: false`** unless product accepts ~1.8 pp winner hit for ~0.03 runs total MAE. See [W6-stack-prod](#w6-stack-prod--enable-stacking-at-inference) and `docs/mlb_pregame_ops.md`.
 
 #### Pre-W6h gate (orchestrator)
 
@@ -327,7 +345,7 @@ The orchestration agent **does not implement large features** unless unblocking.
 4. Assigns **exactly one phase** to the next worker window (or parallel W2+W3 after P0) with the **exact branch name** to create.
 5. Pastes the matching **worker prompt** from [Worker prompts](#worker-prompts) below.
 6. After a worker finishes, verifies claims (files, train, **branch merged to `feature/mlb-ensemble-integration`**) and updates status in the handoff reply.
-7. For **quality audits** (abnormalities, stack vs linear, member ROI), point the user to the [evaluation agent](mlb_ensemble_eval_agent.md) — separate chat from implementation workers.
+7. For **quality audits** (abnormalities, stack vs linear, member ROI, decorrelation / W6l gate), re-run train and inspect `reports/mlb/eval/` — see [W6-eval](#w6-eval--holdout-splits-recommended) and `docs/mlb_pregame_ops.md`. Use a separate eval chat; do not assign W6l unless audit passes.
 
 ### How to specify the orchestration agent
 
@@ -349,7 +367,7 @@ You are the **orchestration agent** for the MLB pregame ensemble in the gametime
 ## Authority
 Follow `docs/mlb_ensemble_roadmap.md` (attached / @docs/mlb_ensemble_roadmap.md). Do not invent a different architecture.
 
-**Default next window:** **W6h** (pitcher ingest + member) — [Post-v1 improvement strategy](#post-v1-improvement-strategy-recommended-order), [Iteration SOP](#iteration-sop-members--ensemble), [W6h prompt](#w6h--pitcher-copy-paste-worker-prompt). Quick parallel track: **W6-max-weight** (weight collapse) or **W6-stack-prod** (only if test winner tradeoff accepted).
+**Default next window:** **Maintenance ops** (download + slate on `main`). **Do not assign W6l (XGB)** — gated by [W6-eval decorrelation audit](#w6-eval--holdout-splits-recommended). **W6a** deferred. Re-open W6-eval refresh only if members or splits change.
 
 ## Your job (this chat only)
 1. **Audit** — Phases P0–P4 + W6b–W6g: files, `reports/mlb/eval/pregame_summary.json`, `models/mlb/pregame/ensemble.json`.
@@ -540,15 +558,15 @@ Run **A** before adding many members. **D** items depend on `features.py` ingest
 
 | Window | Status | Notes |
 |--------|--------|-------|
-| W6d–W6g | ✅ done | tests, weights, Poisson, stacking, Pythagorean, Elo |
+| W6d–W6g, W6-max-weight, W6-stack-prod | ✅ done | tests, weights, Poisson, stacking, Pythagorean, Elo, weight cap |
+| W6h–W6k, W6m–W6o | ✅ done | pitcher, park, weather, lineup, h2h, travel_rest, series_context |
+| W6-statsapi-games, W6-sp-live-fip, W7, W8 | ✅ done | hybrid games, live FIP, slate CLI, slate backtest |
+| W6-eval 13-member refresh | ✅ done | May 2026; decorrelation audit gates W6l |
+| Linear prod blend | ✅ done | `use_stacking: false` per holdout |
 | **W6a** | **⏸ deferred** | No `ODDS_API_KEY`; skip unless user un-defers |
-| W6-eval | ✅ done | Val 2024 / test 2025 in `configs/mlb.yaml` |
-| W6-stack-prod, W6-max-weight | backlog | See [Iteration SOP](#iteration-sop-members--ensemble) |
-| **W6h** | ▶ **next** | User/orchestrator: pitcher ingest + member — [prompt](#w6h--pitcher-copy-paste-worker-prompt) |
-| W6i–W6o | backlog | After W6h; park / weather / lineup / low-priority members |
-| **W7** | ✅ done | `pregame-slate`, `docs/mlb_pregame_ops.md`, seasons 2021–2026 |
+| **W6l XGBoost** | ❌ **gated out** | [W6l](#w6l--xgboost-gated) — r ≥ 0.94 vs incumbents on test |
 
-**Orchestrator:** Default assign **W6h** for feature ROI per [Iteration SOP](#iteration-sop-members--ensemble). **W6-max-weight** if weights still collapse after W6e. **W7** for same-day slate only. Do not assign W6l (XGB) before pitcher/park unless decorrelation audit on test/val preds shows a gap.
+**Orchestrator:** Default is **maintenance ops** (download + slate). Do **not** assign W6l unless a **new** decorrelation audit on fresh preds shows orthogonal error (r &lt; 0.94 vs all incumbents). Do not assign W6a unless un-deferred.
 
 ### Original W6 windows (expanded)
 
@@ -720,7 +738,9 @@ Branch, commit, merged yes/no, val/test metrics (linear vs stacked), files chang
 
 ### W6-eval — Holdout splits (recommended)
 
-**Status: shipped** — `test_seasons: [2025]`, val 2024. Re-open only if splits or parquet seasons change.
+**Status: shipped** — `test_seasons: [2025]`, val 2024. **13-member refresh (May 2026):** branch `w6-eval-13member-refresh`; ops go/no-go in `docs/mlb_pregame_ops.md`. Re-open only if splits, parquet seasons, or `pregame.ensemble.members` change.
+
+**13-member decorrelation audit (May 2026):** 73 pairs on val / 75 on test with total-error Pearson **r ≥ 0.94** (e.g. lgbm × travel_rest **0.9997**, lgbm × pitcher **0.9985**). No solo member beats linear `ensemble` on 2025 test total MAE or winner%. **Gates out W6l (XGB)** and duplicate form-style members.
 
 Small window to fix **measurement** before production blend changes. See [Post-v1 improvement strategy](#post-v1-improvement-strategy-recommended-order) and [Iteration SOP](#iteration-sop-members--ensemble).
 
@@ -740,17 +760,58 @@ Small window to fix **measurement** before production blend changes. See [Post-v
 
 ### W6-stack-prod — Enable stacking at inference
 
-**Prerequisite:** W6c merged; prefer W6-eval showing `ensemble_stacked` beats `ensemble` on **test**.
+**Status:** Stacking was enabled at inference (`use_stacking: true`) after W6c; **May 2026 W6-eval 13-member refresh** flipped production to **linear** (`use_stacking: false`) because stacked inference loses ~1.8 pp winner% on 2025 test. Stacker artifact is still fit at train time; toggle only changes inference blend.
 
-**Scope:**
+**Prerequisite:** W6c merged; W6-eval showing tradeoff on **test**.
 
-1. Set `pregame.ensemble.use_stacking: true` in `configs/mlb.yaml` if holdout (or user) accepts.
+**Scope (historical — enable stack):**
+
+1. Set `pregame.ensemble.use_stacking: true` in `configs/mlb.yaml` if holdout (or user) accepts winner hit.
 2. `BaseballPregamePredictor` / CLI already wire `stack_predict` when flag set.
 3. Update `docs/mlb_pregame_ops.md` one line on blend mode.
 
+**Scope (May 2026 — linear prod):** Set `use_stacking: false`; document holdout numbers in ops. Branch `feature/mlb-ensemble/w6-stack-linear-prod`.
+
 **Out of scope:** New members, re-tuning member models.
 
-**Branch:** `feature/mlb-ensemble/w6-stack-prod`
+**Branch:** `feature/mlb-ensemble/w6-stack-prod` (enable) or `w6-stack-linear-prod` (disable at inference)
+
+---
+
+### W6l — XGBoost (gated)
+
+**Window ID:** W6l · **Branch:** `feature/mlb-ensemble/w6l-xgb` · **Tier:** E (experimental)
+
+**Planned approach (never shipped):**
+
+Add a fourteenth ensemble member `xgb` that mirrors the existing **`lgbm`** member but uses **XGBoost** instead of LightGBM on the **same** pregame feature matrix (`FEATURE_COLUMNS` in `features.py`):
+
+| Piece | Plan |
+|-------|------|
+| Model file | `src/gametime/pregame/baseball/models/xgb.py` — `XgbMember(BaseballMemberModel)` |
+| Learners | Three boosters: `total_final`, `margin_final`, optional `home_win` (same targets as `lgbm.py`) |
+| Features | Identical columns to LGBM — form, RS/RA windows, SP/park/weather/lineup sidecars when populated |
+| Hyperparams | Deliberately **different** from LGBM (e.g. `max_depth`, `eta`, `subsample`) in hope of **decorrelated** errors vs `lgbm` |
+| Train | `fit(train 2021–2023, early stop on val 2024)`; wire in `train.py` + `predict.py` + `configs/mlb.yaml` `members` |
+| Blend | Val-only refit of `ensemble.json` weights + stacker after adding member |
+
+**Hypothesis:** A second tree algorithm on the same columns might capture slightly different splits and improve the blend.
+
+**Why not assign (May 2026 W6-eval audit):**
+
+- Member errors are **highly correlated** — 75 test pairs with total-error **r ≥ 0.94**; top pairs include lgbm × pitcher (0.9985), lgbm × poisson (0.9984).
+- XGB on **`FEATURE_COLUMNS` only** would correlate with **`lgbm`** almost as strongly as other form-style members; val weight refit would assign ~floor weight (same failure mode as duplicate heuristics).
+- No solo incumbent beats linear **`ensemble`** on 2025 test total or winner%; adding a correlated tree does not fix the binding constraint (missing **orthogonal** signal, e.g. market lines or better SP/lineup coverage).
+
+**Orchestrator gate — assign W6l only if ALL hold:**
+
+1. Fresh decorrelation audit on `test_predictions.parquet` shows **`xgb` total errors** with **r &lt; 0.94** vs every incumbent on test, **or**
+2. User explicitly requests an experimental branch with no merge expectation, **or**
+3. **`FEATURE_COLUMNS` gains new orthogonal columns** and the experiment is “retrain lgbm + add xgb” in one window — still require audit before merge.
+
+**Dependency:** `xgboost` package (not in repo today); add to `[project.optional-dependencies] mlb` if un-gated.
+
+**Do not block** daily ops or linear prod on W6l.
 
 ---
 
@@ -889,7 +950,7 @@ Brainstormed **additional approaches** beyond v1’s heuristic + LGBM + runs_str
 | `lineup` | Lineup strength | projected wOBA, platoon | total, margin | lineup ingest | **D** | Day-of; may be null pre-lineup |
 | `weather` | Weather adjustment | wind, temp, humidity | total | weather API | **D** | Wind-out totals; dome flag |
 | `market` | Closing line as member | spread, total (not just blend) | total, margin | odds API | **B (deferred)** | Needs `ODDS_API_KEY` / historical lines; same blocker as W6a |
-| `xgb` | XGBoost | same as LGBM | total, margin | games only | **E** | Decorrelate trees if hyperparams differ |
+| `xgb` | XGBoost | same as LGBM (`FEATURE_COLUMNS`) | total, margin | games only | **E — gated** | W6l; **do not assign** until decorrelation audit passes — see [W6l](#w6l--xgboost-gated) |
 | `ridge` | Ridge on features | linear in form cols | total, margin | games only | **E** | Interpretable foil to LGBM |
 | `h2h` | Head-to-head shrink | last N meetings | margin | games only | **E** | High variance; strong shrinkage |
 | `travel_rest` | Schedule stress | miles, games in 3d, DH | margin, total | schedule | **E** | Extends `rest_days` |
@@ -909,16 +970,13 @@ Brainstormed **additional approaches** beyond v1’s heuristic + LGBM + runs_str
 ### Suggested execution order (post-v1)
 
 ```text
-main / feature/mlb-ensemble-integration
-  ├── W6b–W6g (Poisson, stack train, Pythagorean, Elo)     ✅
-  ├── W6d, W6e (tests, weight floor)                        ✅
-  ├── W7 (today's slate ops)                                ✅
-  ├── W6-eval (optional)     val 2024 / test 2025 holdout
-  ├── W6-stack-prod          inference use_stacking if holdout OK
-  ├── W6-max-weight (optional) cap fit_weights per member
-  ├── W6h-pitcher ▶          M1 ingest + features + member + LGBM refresh
-  ├── W6i-park, W6j-weather, W6k-lineup
-  └── W6a-vegas              ⏸ deferred
+main
+  ├── W6b–W6g, W6d, W6e, W6-max-weight, W6-stack-prod     ✅
+  ├── W6h–W6k, W6m–W6o (13 members)                        ✅
+  ├── W6-statsapi-games, W6-sp-live-fip, W7, W8             ✅
+  ├── W6-eval 13-member refresh + linear prod blend         ✅
+  ├── W6l-xgb                                               ❌ gated (decorrelation audit)
+  └── W6a-vegas                                             ⏸ deferred
 ```
 
 **Orchestrator rule:** After any new member window, **refit on val** in the same PR (`ensemble.json` weights + stacker). Run [Iteration SOP](#iteration-sop-members--ensemble) and [Per-window checklist](#per-window-checklist-any-new-member-including-w6h).
@@ -948,17 +1006,13 @@ Track in `features.py` FEATURE_ROADMAP; flip `has_*` flags when columns are popu
 | W6c | ✅ | `w6c-stacking` | Ridge stacker vs linear weights |
 | W6f | ✅ | `w6f-pythagorean` | Pythagorean member |
 | W6g | ✅ | `w6g-elo` | Elo member |
-| W6-eval | ✅ done | `w6-eval-holdout` | Test 2025 holdout in config |
-| W6-stack-prod | backlog | `w6-stack-prod` | `use_stacking: true` at inference |
-| W6-max-weight | backlog | `w6-max-weight` | Max weight cap in grid search |
-| W6h | ▶ **next** | `w6h-pitcher` | M1 ingest + SP/bullpen member — [prompt](#w6h--pitcher-copy-paste-worker-prompt) |
-| W6i | `w6i-park` | Park factor member |
-| W6j | `w6j-weather` | Weather-adjusted total |
-| W6k | `w6k-lineup` | Lineup strength member |
-| W6l | `w6l-xgb` | XGBoost member |
-| W6m | `w6m-h2h` | Head-to-head member |
-| W6n | `w6n-travel-rest` | Travel / schedule member |
-| W6o | backlog | `w6o-series-context` | Series game context + prior-game style (games-only) |
+| W6-eval | ✅ | `w6-eval-holdout` / `w6-eval-13member-refresh` | Test 2025 holdout; 13-member audit May 2026 |
+| W6-stack-prod | ✅ | `w6-stack-prod` / `w6-stack-linear-prod` | Stacking at train; **linear at inference** (May 2026) |
+| W6-max-weight | ✅ | `w6-max-weight` | Max weight cap in grid search |
+| W6h–W6k, W6m–W6o | ✅ | `w6h-pitcher` … `w6o-series-context` | 13-member production set |
+| W6-statsapi-games | ✅ | `w6-statsapi-games` | Hybrid games.parquet backfill |
+| W6-sp-live-fip | ✅ | `w6-sp-live-fip` | Live Prob SP + distinct FIP on slate |
+| W6l | ❌ gated | `w6l-xgb` | XGBoost member — [W6l](#w6l--xgboost-gated) |
 
 Each row → full copy-paste prompt via [W6 worker prompt template](#w6-worker-prompt-template) + scope from [Member catalog](#member-catalog).
 
@@ -966,9 +1020,9 @@ Each row → full copy-paste prompt via [W6 worker prompt template](#w6-worker-p
 
 ## W7 — Today's slate / production predict
 
-**Purpose:** Run the **existing** six-member ensemble on real upcoming games (not a new model window). No new ensemble members unless blocking bugs are found.
+**Purpose:** Run the **existing** 13-member ensemble on real upcoming games (not a new model window). No new ensemble members unless blocking bugs are found.
 
-**When all members run together:** Every `gametime-pregame` call already runs lgbm + heuristic + runs_strength + poisson + pythagorean + elo, then blends via `ensemble.json` (or stacker if `use_stacking: true`). You do **not** run six separate commands.
+**When all members run together:** Every `gametime-pregame` call runs all members listed in `pregame.ensemble.members`, then blends via linear `weights` in `ensemble.json` (production default: `use_stacking: false`). You do **not** run separate commands per member.
 
 ### Prerequisites
 

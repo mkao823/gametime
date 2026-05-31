@@ -81,6 +81,8 @@ Production default is **linear** (`use_stacking: false`). **W6-eval 13-member ho
 
 Both modes require the same `ensemble.json` artifact from `gametime-pregame-train`; the stacker block is always written at train time.
 
+**13 members (production):** `lgbm`, `heuristic`, `runs_strength`, `poisson`, `pythagorean`, `pitcher`, `park_factor`, `weather`, `lineup`, `travel_rest`, `series_context`, `elo`, `h2h`. Adding members requires `pregame-train` and val refit. **W6l (XGBoost)** is in the roadmap but **not scheduled** — W6-eval decorrelation audit showed r ≥ 0.94 vs incumbents; see [W6l](mlb_ensemble_roadmap.md#w6l--xgboost-gated).
+
 ## Single game
 
 ```bash
@@ -143,4 +145,4 @@ Columns include matchup, `pred_total`, `pred_margin`, `winner_tricode`, form cou
 | `No train rows for member refit` | Check `train.train_seasons` in config |
 | Team predict error | Team may lack history in `games.parquet` (expansion/rename); check tricode aliases in ingest |
 
-See `docs/mlb_ensemble_roadmap.md` (W7) for scope and ensemble roadmap.
+See `docs/mlb_ensemble_roadmap.md` ([Current state](#current-state-may-2026), W7) for scope and ensemble roadmap.
