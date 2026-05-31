@@ -28,6 +28,7 @@ Production track is **`main`** (direct merge; `feature/mlb-ensemble-integration`
 | W6-sp-live-fip + slate precision | ✅ Merged — live Prob SP + distinct FIP on slate |
 | W6-eval 13-member refresh | ✅ Merged — holdout go/no-go in `docs/mlb_pregame_ops.md` |
 | Production blend | **`use_stacking: false`** (linear weights) — 2025 test winner 55.7% vs stacked 53.9% |
+| **W9 total calibration** | ▶ **Next feature window** — [W9 prompt](#w9--total-calibration-copy-paste-worker-prompt) |
 | **W6l XGBoost** | ❌ **Do not assign** — [W6-eval decorrelation audit](#w6-eval--holdout-splits-recommended) |
 | **W6a Vegas** | ⏸ Deferred — no `ODDS_API_KEY` |
 
@@ -145,11 +146,13 @@ Metrics below are **val 2024 / test 2025** (re-run train after config or member 
 
 | Order | Window | Branch | Focus | When |
 |-------|--------|--------|-------|------|
-| — | **Maintenance** | — | `gametime-download` + slate; no new members | **Default after May 2026 ship** |
+| **▶ NEXT** | **W9 total calibration** | `w9-total-calibration` | Post-blend `pred_total` mapping on val; fix regression-to-mean | After W6-eval / linear prod — [prompt](#w9--total-calibration-copy-paste-worker-prompt) |
+| — | **Maintenance** | — | `gametime-download` + slate | Ongoing |
 | 0 | **W6-eval refresh** | `w6-eval-13member-refresh` | 13-member val/test + decorrelation audit | ✅ May 2026; re-run if splits or members change |
-| 1 | **Linear prod blend** | `w6-stack-linear-prod` | `use_stacking: false` at inference | ✅ Shipped per W6-eval go/no-go |
+| 1 | **Linear prod blend** | `w6-stack-linear-prod` | `use_stacking: false` at inference | ✅ Shipped |
 | 2 | **W6a** | `w6a-vegas` | Market blend / member | ⏸ deferred — needs odds |
 | — | **W6l XGBoost** | `w6l-xgb` | XGB on same `FEATURE_COLUMNS` as LGBM | ❌ **Gated out** — see [W6l](#w6l--xgboost-gated) |
+| — | **W9b win-prob calibration** | `w9b-win-prob-calibration` | Platt/isotonic on `win_prob_home` | After W9 if winner% still misaligned |
 
 **Do not prioritize:** W6l (XGB on same columns as LGBM), extra form heuristics, or finer grid alone without new signal.
 
@@ -174,7 +177,7 @@ Use this loop for **every** improvement — whether you change one member, add i
 | **Ingest + features** | New signal for `lgbm` *and* orthogonal members; fixes placeholder `has_*` | **W6h** → W6i–k |
 | **Honest measurement** | Val/test must be different RS years; judge go/no-go on **test** | **W6-eval** (shipped) |
 | **Blend discipline** | Caps, optional stacking; small gains if members stay correlated | **W6-max-weight**, **W6-stack-prod** |
-| **Total calibration** | Preds regress to ~8.9 runs; weak on very low/high actual totals | Analysis / features; not grid-only |
+| **Total calibration** | Preds regress to ~8.9 runs; weak on very low/high actual totals | **W9** — post-blend mapping on val |
 | **More form-style members** | Errors r≈0.94–1.0 across LGBM / Poisson / runs_strength | Defer **W6l** and duplicate heuristics |
 
 #### Standard iteration loop
@@ -367,7 +370,7 @@ You are the **orchestration agent** for the MLB pregame ensemble in the gametime
 ## Authority
 Follow `docs/mlb_ensemble_roadmap.md` (attached / @docs/mlb_ensemble_roadmap.md). Do not invent a different architecture.
 
-**Default next window:** **Maintenance ops** (download + slate on `main`). **Do not assign W6l (XGB)** — gated by [W6-eval decorrelation audit](#w6-eval--holdout-splits-recommended). **W6a** deferred. Re-open W6-eval refresh only if members or splits change.
+**Default next window:** **W9 total calibration** — [W9 prompt](#w9--total-calibration-copy-paste-worker-prompt). **Do not assign W6l (XGB)** — gated by decorrelation audit. **W6a** deferred. Re-open W6-eval refresh only if members or splits change.
 
 ## Your job (this chat only)
 1. **Audit** — Phases P0–P4 + W6b–W6g: files, `reports/mlb/eval/pregame_summary.json`, `models/mlb/pregame/ensemble.json`.
@@ -561,12 +564,13 @@ Run **A** before adding many members. **D** items depend on `features.py` ingest
 | W6d–W6g, W6-max-weight, W6-stack-prod | ✅ done | tests, weights, Poisson, stacking, Pythagorean, Elo, weight cap |
 | W6h–W6k, W6m–W6o | ✅ done | pitcher, park, weather, lineup, h2h, travel_rest, series_context |
 | W6-statsapi-games, W6-sp-live-fip, W7, W8 | ✅ done | hybrid games, live FIP, slate CLI, slate backtest |
-| W6-eval 13-member refresh | ✅ done | May 2026; decorrelation audit gates W6l |
-| Linear prod blend | ✅ done | `use_stacking: false` per holdout |
+| W6-eval 13-member refresh | ✅ done | decorrelation audit gates W6l |
+| Linear prod blend | ✅ done | `use_stacking: false` |
+| **W9 total calibration** | ▶ **next** | Post-ensemble total mapping — [prompt](#w9--total-calibration-copy-paste-worker-prompt) |
 | **W6a** | **⏸ deferred** | No `ODDS_API_KEY`; skip unless user un-defers |
 | **W6l XGBoost** | ❌ **gated out** | [W6l](#w6l--xgboost-gated) — r ≥ 0.94 vs incumbents on test |
 
-**Orchestrator:** Default is **maintenance ops** (download + slate). Do **not** assign W6l unless a **new** decorrelation audit on fresh preds shows orthogonal error (r &lt; 0.94 vs all incumbents). Do not assign W6a unless un-deferred.
+**Orchestrator:** Default assign **W9** after linear prod ship. Do **not** assign W6l unless decorrelation audit passes. Do not assign W6a unless un-deferred.
 
 ### Original W6 windows (expanded)
 
@@ -964,7 +968,8 @@ Brainstormed **additional approaches** beyond v1’s heuristic + LGBM + runs_str
 | **Linear weights** | Meta | v1 / W6e | `fit_weights` grid on val — add floors, finer step |
 | **Stacking** | Meta | W6c | Ridge on member OOF preds (val only) |
 | **Vegas blend** | Post | W6a ⏸ | `pred = (1-α)*model + α*market` — **deferred** (no API key) |
-| **Calibration** | Post | future | Isotonic / Platt on `win_prob_home` vs outcomes |
+| **Total calibration** | Post | **W9** ▶ | Val-fit mapping on **ensemble `pred_total`** → `pred_total_cal`; fixes regression-to-mean on low/high games |
+| **Win-prob calibration** | Post | W9b (future) | Platt / isotonic on `win_prob_home` vs outcomes — separate from total |
 | **Quantiles** | Post | future | Member quantile LGBM → interval for total |
 
 ### Suggested execution order (post-v1)
@@ -975,6 +980,7 @@ main
   ├── W6h–W6k, W6m–W6o (13 members)                        ✅
   ├── W6-statsapi-games, W6-sp-live-fip, W7, W8             ✅
   ├── W6-eval 13-member refresh + linear prod blend         ✅
+  ├── W9-total-calibration ▶                               post-blend total mapping (val fit)
   ├── W6l-xgb                                               ❌ gated (decorrelation audit)
   └── W6a-vegas                                             ⏸ deferred
 ```
@@ -1013,8 +1019,9 @@ Track in `features.py` FEATURE_ROADMAP; flip `has_*` flags when columns are popu
 | W6-statsapi-games | ✅ | `w6-statsapi-games` | Hybrid games.parquet backfill |
 | W6-sp-live-fip | ✅ | `w6-sp-live-fip` | Live Prob SP + distinct FIP on slate |
 | W6l | ❌ gated | `w6l-xgb` | XGBoost member — [W6l](#w6l--xgboost-gated) |
+| W9 | ▶ **next** | `w9-total-calibration` | Post-blend total calibration — [W9](#w9--total-calibration) |
 
-Each row → full copy-paste prompt via [W6 worker prompt template](#w6-worker-prompt-template) + scope from [Member catalog](#member-catalog).
+Each row → full copy-paste prompt via [W6 worker prompt template](#w6-worker-prompt-template) + scope from [Member catalog](#member-catalog). **W9** uses its [dedicated prompt](#w9--total-calibration-copy-paste-worker-prompt).
 
 ---
 
@@ -1115,6 +1122,147 @@ If CLI not on PATH: `PYTHONPATH=src python3 -m gametime.cli ...`
 
 ## Handoff
 Branch, commit, merged to main yes/no, sample slate output for today's date, any data gaps (teams with no history), files changed.
+````
+
+---
+
+## W9 — Total calibration
+
+**Purpose:** Fix **regression-to-the-mean** on ensemble game totals. W6-eval 13-member holdout shows linear `ensemble` test total MAE **3.609** and winner **55.7%**, but predicted totals cluster near league average (~8.9 runs) while actuals span roughly **5–14**. Weight grid and new correlated members cannot fix this; a **post-blend calibration layer** on `pred_total` is the next roadmap feature (aside from deferred Vegas).
+
+**Not in scope for W9:** new ensemble members, re-tuning member weights, win-prob Platt/isotonic (**W9b**), quantile intervals.
+
+### Problem (what we observe)
+
+| Symptom | Meaning |
+|---------|---------|
+| Low-scoring games (actual total &lt; ~7) | Model overshoots — positive `bias_total` |
+| High-scoring games (actual total &gt; ~11) | Model undershoots — negative `bias_total` |
+| Overall MAE ~3.6 | Acceptable on average; **band errors** are structured |
+| `bias_total` ≈ 0 globally | Affine shift alone may not help; need **shape** mapping |
+
+Calibration adjusts the **final ensemble total** after members combine. **`pred_margin` and winner** stay on the unc calibrated margin path in v1 unless eval shows coupling is needed (**W9b**).
+
+### Process (worker must follow)
+
+```text
+1. Diagnose (analysis, val + test report-only)
+      • From val/test preds: pred_total vs actual_total scatter
+      • bias_total overall; MAE and bias by pred_total terciles AND actual_total terciles
+      • Optional: export reports/mlb/eval/total_calibration_diagnostic.json
+
+2. Choose calibrator (fit on VAL ONLY — 2024 RS)
+      • v1 default: affine  total_cal = slope * total_raw + intercept
+        (mirror src/gametime/pregame/calibration.py fit_margin_calibration)
+      • If affine fails go/no-go: isotonic regression (sklearn, monotonic, clip to [3, 20])
+      • Optional v2: piecewise / tercile knots — only if isotonic insufficient
+
+3. Fit
+      • Input: ensemble linear pred_total on val rows (same blend as prod: use_stacking false)
+      • Target: actual total runs (home + away)
+      • Never fit on test 2025
+
+4. Persist artifact
+      • models/mlb/pregame/total_calibration.json
+      • Fields: type ("affine" | "isotonic"), params, fit_split="val", val_season, n_fit
+
+5. Wire train + predict
+      • train_baseball_pregame: after ensemble combine on val, fit calibrator, save artifact
+      • BaseballPregamePredictor.predict: after combine(), apply calibrator to total only
+      • Config: pregame.calibration.total_enabled: true (default false until merged)
+
+6. Evaluate (TEST 2025 — report only)
+      • total_mae, margin_mae, winner_accuracy: before vs after calibration
+      • bias_total overall and by actual_total bands (<7, 7–11, >11)
+      • Go/no-go: ship if test total MAE improves OR band |bias| drops materially
+        without winner_accuracy falling > 0.5 pp vs uncalibrated ensemble
+
+7. Handoff
+      • Val/test before/after tables, artifact path, config flag, pytest coverage
+```
+
+**Reference implementation:** Basketball/WNBA uses post-LGBM margin calibration in `src/gametime/pregame/calibration.py` (`MarginCalibration`, `fit_margin_calibration`). W9 should add **`TotalCalibration`** — either in that module (shared) or `src/gametime/pregame/baseball/calibration.py` (MLB-specific). Prefer shared module if API is sport-agnostic.
+
+### Implementation sketch
+
+| Component | Path / action |
+|-----------|----------------|
+| Calibrator dataclass | `TotalCalibration` with `apply(total_raw) -> total_cal` |
+| Fit helper | `fit_total_calibration(pred_total, actual_total) -> TotalCalibration` |
+| Train hook | `src/gametime/pregame/baseball/train.py` — after val ensemble preds |
+| Predict hook | `src/gametime/pregame/baseball/predict.py` — after `combine()` / `stack_predict()` |
+| Artifact | `models/mlb/pregame/total_calibration.json` |
+| Config | `configs/mlb.yaml` → `pregame.calibration.total_enabled: true` |
+| Tests | `tests/test_baseball_total_calibration.py` — affine round-trip, isotonic monotonic, no test leakage |
+| Summary | `pregame_summary.json` → `total_calibration` block with val/test metrics before/after |
+
+**Inference fields:** expose both `pred_total` (calibrated when enabled) and `pred_total_raw` on `BaseballPregamePrediction` for debugging; log both in `pregame_predictions.parquet` when calibration active.
+
+### Go / no-go (orchestrator)
+
+| Result | Action |
+|--------|--------|
+| Test total MAE ↓ and winner% within 0.5 pp | Merge; set `total_enabled: true` |
+| Band bias improves, MAE flat, winner% OK | Merge if product cares about O/U-style bias |
+| MAE worse or winner% drops &gt; 0.5 pp | Do not enable in config; document in Handoff |
+| Affine fails, isotonic helps | Ship isotonic; document in ops |
+
+### W9 — Total calibration (copy-paste worker prompt)
+
+````markdown
+@docs/mlb_ensemble_roadmap.md
+
+You are **Window W9 — total calibration** for the MLB pregame ensemble in gametime.
+
+## Authority
+Follow `docs/mlb_ensemble_roadmap.md` → [W9 — Total calibration](#w9--total-calibration).
+Reference: `src/gametime/pregame/calibration.py` (margin calibration pattern for basketball).
+
+Do **not** add ensemble members, change weights/stacker, or fit on test 2025.
+
+## Git (required)
+```bash
+git fetch origin
+git checkout main
+git pull origin main
+git checkout -b feature/mlb-ensemble/w9-total-calibration
+```
+
+Work only on this branch. Commit when verify passes (no push unless user asks).
+
+**Commit message:** `mlb pregame: W9 post-ensemble total calibration (val fit)`
+
+## Scope
+1. **Diagnose** — val/test ensemble `pred_total` vs actual; bias and MAE by total bands (see W9 process).
+2. **Implement** `TotalCalibration` + `fit_total_calibration()` (affine v1; isotonic fallback if needed).
+3. **Train** — fit on **val 2024 only** from ensemble linear preds (`use_stacking: false`); save `models/mlb/pregame/total_calibration.json`.
+4. **Predict** — apply after ensemble combine in `BaseballPregamePredictor`; add `pred_total_raw` when calibration enabled.
+5. **Config** — `pregame.calibration.total_enabled` (default `false` until verified).
+6. **Summary** — extend `pregame_summary.json` with before/after total metrics on val and test.
+7. **Tests** — `tests/test_baseball_total_calibration.py`; existing ensemble tests still pass.
+
+## Out of scope
+- New members (W6l gated), Vegas (W6a deferred)
+- Win-prob Platt/isotonic (W9b)
+- Margin calibration (separate window if needed)
+- Re-tuning `ensemble.json` weights
+
+## Verify
+```bash
+PYTHONPATH=src pytest tests/test_baseball_total_calibration.py tests/test_baseball_ensemble.py -q
+gametime-pregame-train --config configs/mlb.yaml
+# Inspect reports/mlb/eval/pregame_summary.json total_calibration block
+gametime-pregame --config configs/mlb.yaml --home NYY --away BOS --regular-season
+gametime-pregame-slate --config configs/mlb.yaml --regular-season --decimals 2
+```
+
+## Handoff (required)
+- Branch, commit SHA, merged yes/no
+- Calibrator type (affine / isotonic) and val fit params
+- Val vs test: total_mae, bias_total, band bias table **before/after**
+- Winner% before/after on test (must be within 0.5 pp or justify)
+- Recommend `total_enabled: true/false` for prod config
+- Files changed
 ````
 
 ---
