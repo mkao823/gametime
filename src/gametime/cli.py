@@ -492,6 +492,7 @@ def pregame_slate(argv=None):
     lineup_games_path = root / data_cfg.get(
         "lineup_games_path", "data/mlb/processed/lineup_games.parquet"
     )
+    total_cal_enabled = bool(pg.get("calibration", {}).get("total_enabled", False))
     predictor = BaseballPregamePredictor(
         model_dir,
         games_path,
@@ -505,6 +506,7 @@ def pregame_slate(argv=None):
         park_factors_path=park_factors_path,
         weather_games_path=weather_games_path,
         lineup_games_path=lineup_games_path,
+        total_calibration_enabled=total_cal_enabled,
     )
 
     is_playoff = not args.regular_season
@@ -766,6 +768,7 @@ def pregame(argv=None):
         lineup_games_path = root / data_cfg.get(
             "lineup_games_path", "data/mlb/processed/lineup_games.parquet"
         )
+        total_cal_enabled = bool(pg.get("calibration", {}).get("total_enabled", False))
         predictor = BaseballPregamePredictor(
             model_dir,
             games_path,
@@ -782,6 +785,7 @@ def pregame(argv=None):
             league_total_fallback=float(pg.get("league_total_fallback", 8.5)),
             h2h_window=int(h2h_cfg.get("meeting_window", 10)),
             h2h_shrink_k=float(h2h_cfg.get("shrink_k", 8.0)),
+            total_calibration_enabled=total_cal_enabled,
         )
         pred = predictor.predict(
             home=args.home,

@@ -56,6 +56,8 @@ pregame:
   h2h:
     meeting_window: 10
     shrink_k: 8
+  calibration:
+    total_enabled: false
   elo:
     k: 4
     home_adv_runs: 0.15

@@ -73,6 +73,10 @@ from gametime.pregame.baseball.models.lineup import (
     latest_lineup_columns,
 )
 from gametime.pregame.baseball.prediction import MemberPrediction
+from gametime.pregame.calibration import (
+    TotalCalibration,
+    load_total_calibration_if_present,
+)
 from gametime.pregame.predict import PregamePrediction
 
 
@@ -90,6 +94,7 @@ class BaseballPregamePrediction:
     win_prob_home: float
     home_form_n: int
     away_form_n: int
+    pred_total_raw: Optional[float] = None
     ensemble_weights: Optional[dict[str, Any]] = None
     member_totals: Optional[dict[str, float]] = None
     member_margins: Optional[dict[str, float]] = None
@@ -147,6 +152,7 @@ class BaseballPregamePredictor:
         league_total_fallback: float = 8.5,
         h2h_window: int = 10,
         h2h_shrink_k: float = 8.0,
+        total_calibration_enabled: bool = False,
     ) -> None:
         model_dir = Path(model_dir)
         self.model_dir = model_dir
@@ -237,6 +243,14 @@ class BaseballPregamePredictor:
         self._weights_total = self.ensemble_cfg["weights"]["total"]
         self._weights_margin = self.ensemble_cfg["weights"]["margin"]
         self._winner_mode = self.ensemble_cfg.get("winner_mode", "sign_margin")
+        self._total_calibration: TotalCalibration | None = None
+        if total_calibration_enabled:
+            self._total_calibration = load_total_calibration_if_present(model_dir)
+
+    def _apply_total_calibration(self, total_raw: float) -> tuple[float, float | None]:
+        if self._total_calibration is None:
+            return total_raw, None
+        return float(self._total_calibration.apply(total_raw)), total_raw
 
     def _form_n(self, team_games: pd.DataFrame, team: str) -> int:
         from gametime.pregame.baseball.features import _form_game_count
@@ -337,8 +351,9 @@ class BaseballPregamePredictor:
                 weights_total=self._weights_total,
                 weights_margin=self._weights_margin,
             )
-        total = float(ensemble.total[0])
+        total_raw = float(ensemble.total[0])
         margin = float(ensemble.margin[0])
+        total, pred_total_raw = self._apply_total_calibration(total_raw)
 
         if self._winner_mode == "sign_margin":
             winner = _winner(home, away, margin)
@@ -372,6 +387,7 @@ class BaseballPregamePredictor:
             win_prob_home=win_prob,
             home_form_n=home_form_n,
             away_form_n=away_form_n,
+            pred_total_raw=pred_total_raw,
             ensemble_weights=self.ensemble_cfg.get("weights"),
             member_totals=member_totals,
             member_margins=member_margins,
@@ -394,4 +410,5 @@ class BaseballPregamePredictor:
             win_prob_home=p.win_prob_home,
             home_form_n=p.home_form_n,
             away_form_n=p.away_form_n,
+            pred_total_raw=p.pred_total_raw,
         )

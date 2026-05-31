@@ -44,6 +44,7 @@ class PregamePrediction:
     away_form_n: int
     pred_margin_raw: Optional[float] = None
     pred_margin_calibrated: Optional[float] = None
+    pred_total_raw: Optional[float] = None
     margin_low: Optional[float] = None
     margin_high: Optional[float] = None
     blowout_prob: Optional[float] = None

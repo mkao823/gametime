@@ -8,6 +8,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from gametime.pregame.calibration import (
+    fit_total_calibration,
+    save_total_calibration,
+    total_band_bias,
+    total_calibration_metrics,
+)
 from gametime.pregame.baseball.ensemble import (
     combine,
     combine_equal,
@@ -149,6 +155,39 @@ def _member_total_error_corr(
     for col in corr.columns:
         out[col] = {idx: float(val) for idx, val in corr[col].items() if pd.notna(val)}
     return out
+
+
+def _total_calibration_diagnostic(
+    pred_total: np.ndarray,
+    actual_total: np.ndarray,
+) -> dict[str, Any]:
+    """Scatter summary and tercile bias for val/test report-only diagnosis."""
+    pred = np.asarray(pred_total, dtype=float)
+    actual = np.asarray(actual_total, dtype=float)
+    if len(pred) == 0:
+        return {}
+    pred_terciles = np.quantile(pred, [1 / 3, 2 / 3])
+    actual_terciles = np.quantile(actual, [1 / 3, 2 / 3])
+
+    def _tercile_bias(values: np.ndarray, tercile_edges: np.ndarray) -> dict[str, float | None]:
+        low = values < tercile_edges[0]
+        mid = (values >= tercile_edges[0]) & (values < tercile_edges[1])
+        high = values >= tercile_edges[1]
+        out: dict[str, float | None] = {}
+        for name, mask in (("low", low), ("mid", mid), ("high", high)):
+            out[name] = float(np.mean(pred[mask] - actual[mask])) if mask.sum() else None
+        return out
+
+    return {
+        "n": int(len(pred)),
+        "pred_mean": float(np.mean(pred)),
+        "actual_mean": float(np.mean(actual)),
+        "bias_total": float(np.mean(pred - actual)),
+        "total_mae": float(np.mean(np.abs(pred - actual))),
+        "band_bias_actual": total_band_bias(pred, actual),
+        "tercile_bias_pred": _tercile_bias(pred, pred_terciles),
+        "tercile_bias_actual": _tercile_bias(actual, actual_terciles),
+    }
 
 
 def train_baseball_pregame(
@@ -445,6 +484,68 @@ def train_baseball_pregame(
         )
         if len(val_df)
         else None,
+    }
+
+    actual_total_test = test_df[TARGET_TOTAL].to_numpy()
+    actual_margin_test = test_df[TARGET_MARGIN].to_numpy()
+    total_cal = fit_total_calibration(
+        ensemble_weighted_val.total,
+        actual_total_val,
+        val_season=val_season,
+    )
+    save_total_calibration(total_cal, model_dir / "total_calibration.json")
+
+    val_total_cal = total_cal.apply(ensemble_weighted_val.total)
+    test_total_cal = total_cal.apply(ensemble_weighted_test.total)
+    diagnostic = {
+        "val": _total_calibration_diagnostic(
+            ensemble_weighted_val.total, actual_total_val
+        ),
+        "test": _total_calibration_diagnostic(
+            ensemble_weighted_test.total, actual_total_test
+        ),
+    }
+    diagnostic_path = (
+        (eval_dir if eval_dir is not None else report_path.parent)
+        / "total_calibration_diagnostic.json"
+    )
+    diagnostic_path.parent.mkdir(parents=True, exist_ok=True)
+    with diagnostic_path.open("w") as f:
+        json.dump(diagnostic, f, indent=2)
+
+    meta["total_calibration"] = {
+        "artifact": str(model_dir / "total_calibration.json"),
+        "type": total_cal.type,
+        "params": total_cal.to_dict(),
+        "diagnostic_path": str(diagnostic_path),
+        "val": {
+            "before": total_calibration_metrics(
+                ensemble_weighted_val.total,
+                ensemble_weighted_val.margin,
+                actual_total_val,
+                actual_margin_val,
+            ),
+            "after": total_calibration_metrics(
+                val_total_cal,
+                ensemble_weighted_val.margin,
+                actual_total_val,
+                actual_margin_val,
+            ),
+        },
+        "test": {
+            "before": total_calibration_metrics(
+                ensemble_weighted_test.total,
+                ensemble_weighted_test.margin,
+                actual_total_test,
+                actual_margin_test,
+            ),
+            "after": total_calibration_metrics(
+                test_total_cal,
+                ensemble_weighted_test.margin,
+                actual_total_test,
+                actual_margin_test,
+            ),
+        },
     }
 
     report_path.parent.mkdir(parents=True, exist_ok=True)

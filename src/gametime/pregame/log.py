@@ -49,6 +49,7 @@ def log_pregame_prediction(
         "model_only_winner": pred.model_only.get("winner") if pred.model_only else None,
         "pred_margin_raw": pred.pred_margin_raw,
         "pred_margin_calibrated": pred.pred_margin_calibrated,
+        "pred_total_raw": pred.pred_total_raw,
         "margin_low": pred.margin_low,
         "margin_high": pred.margin_high,
         "blowout_prob": pred.blowout_prob,
