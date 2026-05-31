@@ -8,13 +8,14 @@ from unittest.mock import MagicMock, patch
 from gametime.cli import pregame_slate
 
 
+@patch("gametime.ingest.mlb_pitchers.fetch_probables_for_date", return_value={})
 @patch("gametime.pregame.log.log_pregame_prediction")
 @patch("gametime.pregame.baseball.predict.BaseballPregamePredictor")
 @patch("gametime.ingest.mlb.slate_matchups_for_date")
 @patch("gametime.cli.load_config")
 @patch("gametime.cli.project_root")
 def test_pregame_slate_decimals_default_two(
-    mock_root, mock_load, mock_matchups, mock_predictor_cls, _mock_log
+    mock_root, mock_load, mock_matchups, mock_predictor_cls, _mock_log, _mock_probables
 ):
     mock_root.return_value = MagicMock()
     mock_load.return_value = {
@@ -59,13 +60,14 @@ def test_pregame_slate_decimals_default_two(
     assert " +0.12" in out or "+0.12" in out
 
 
+@patch("gametime.ingest.mlb_pitchers.fetch_probables_for_date", return_value={})
 @patch("gametime.pregame.log.log_pregame_prediction")
 @patch("gametime.pregame.baseball.predict.BaseballPregamePredictor")
 @patch("gametime.ingest.mlb.slate_matchups_for_date")
 @patch("gametime.cli.load_config")
 @patch("gametime.cli.project_root")
 def test_pregame_slate_decimals_one(
-    mock_root, mock_load, mock_matchups, mock_predictor_cls, _mock_log
+    mock_root, mock_load, mock_matchups, mock_predictor_cls, _mock_log, _mock_probables
 ):
     mock_root.return_value = MagicMock()
     mock_load.return_value = {

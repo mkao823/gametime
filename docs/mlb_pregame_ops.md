@@ -97,7 +97,7 @@ gametime-pregame-slate --config configs/mlb.yaml --date $(date +%Y-%m-%d) --regu
 - Matchups come from `games.parquet` when that date has completed games; otherwise pybaseball team schedules (includes upcoming games).
 - `--season YYYY` overrides season label for schedule fetch.
 - `--decimals` (default **2**) controls printed `pred_total` / `pred_margin` precision in the slate table.
-- Probable starters from the MLB schedule API drive live pitcher features: each SP’s FIP is the latest **pre-game** value from `pitcher_games.parquet` for that pitcher ID, strictly before the slate date (not a synthetic cumulative rebuild). When probables are missing, team-level sidecar fallback is used.
+- Probable starters from the MLB schedule API (`hydrate=probablePitcher,team`) drive live pitcher features and the slate **Prob SP** column (away @ home last names). Each SP’s FIP is the latest **pre-game** value from `pitcher_games.parquet` for that pitcher ID, strictly before the slate date (not a synthetic cumulative rebuild). When probables are missing, team-level sidecar fallback is used and the column shows `—`.
 
 ## Retro slate backtest
 

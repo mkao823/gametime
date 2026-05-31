@@ -26,7 +26,9 @@ import json
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -35,6 +37,8 @@ import pandas as pd
 from gametime.ingest.mlb import _norm_team
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
+# ``team`` hydrate required — ``probablePitcher`` alone omits ``abbreviation`` on team nodes.
+SCHEDULE_PROBABLES_HYDRATE = "probablePitcher,team"
 LEAGUE_FIP = 4.20
 FIP_CONSTANT = 3.10
 _REST_DAYS_DEFAULT = 5.0
@@ -89,6 +93,67 @@ _PITCHER_GAMES_COLUMNS = [
 
 def _canon_from_mlb_api(abbrev: str) -> str:
     return _MLB_API_TEAM_TO_CANON.get(str(abbrev).strip().upper(), _norm_team(abbrev))
+
+
+_ATHLETICS_TRICODES = frozenset({"ATH", "OAK"})
+
+
+def _team_lookup_variants(tricode: str) -> tuple[str, ...]:
+    """Athletics relocation: slate/API may use ATH or OAK for the same franchise."""
+    code = str(tricode).strip().upper()
+    if code in _ATHLETICS_TRICODES:
+        return ("ATH", "OAK")
+    return (code,)
+
+
+@dataclass(frozen=True)
+class ProbablePitcher:
+    """Probable starter from MLB schedule hydrate (may be empty pre-announcement)."""
+
+    player_id: Optional[int]
+    full_name: Optional[str]
+
+
+def _parse_probable_pitcher(raw: Any) -> Optional[ProbablePitcher]:
+    if not raw or not isinstance(raw, dict):
+        return None
+    pid = raw.get("id")
+    name = raw.get("fullName") or raw.get("name")
+    return ProbablePitcher(
+        player_id=int(pid) if pid is not None else None,
+        full_name=str(name).strip() if name else None,
+    )
+
+
+def pitcher_short_label(pitcher: Optional[ProbablePitcher]) -> str:
+    """Last name for slate table; em dash when TBD."""
+    if pitcher is None or not pitcher.full_name:
+        return "—"
+    parts = pitcher.full_name.split()
+    return parts[-1] if parts else "—"
+
+
+def format_probable_sp_line(
+    away: Optional[ProbablePitcher],
+    home: Optional[ProbablePitcher],
+) -> str:
+    """Away @ home probable labels for slate CLI."""
+    return f"{pitcher_short_label(away)} @ {pitcher_short_label(home)}"
+
+
+def lookup_probables_for_matchup(
+    probables: dict[tuple[str, str], tuple[Optional[ProbablePitcher], Optional[ProbablePitcher]]],
+    home: str,
+    away: str,
+) -> tuple[Optional[ProbablePitcher], Optional[ProbablePitcher]]:
+    """Resolve probables when home/away tricode differs by Athletics alias (ATH vs OAK)."""
+    home, away = home.upper(), away.upper()
+    for h in _team_lookup_variants(home):
+        for a in _team_lookup_variants(away):
+            pair = probables.get((h, a))
+            if pair is not None:
+                return pair
+    return None, None
 
 
 def _http_json(url: str, *, timeout: float = 30.0) -> dict[str, Any]:
@@ -207,18 +272,19 @@ def fetch_schedule_games(game_date: date) -> list[dict[str, Any]]:
     return rows
 
 
-def fetch_probable_pitchers(
+@lru_cache(maxsize=16)
+def fetch_probables_for_date(
     game_date: date,
-    home: str,
-    away: str,
-) -> tuple[Optional[int], Optional[int]]:
-    """Probable starters for an upcoming game (pregame inference)."""
+) -> dict[tuple[str, str], tuple[Optional[ProbablePitcher], Optional[ProbablePitcher]]]:
+    """All probable SPs for a calendar date (one schedule request; cached per date)."""
     url = (
         f"{MLB_STATS_BASE}/schedule?sportId=1&date={game_date.isoformat()}"
-        "&gameType=R&hydrate=probablePitcher"
+        f"&gameType=R&hydrate={SCHEDULE_PROBABLES_HYDRATE}"
     )
     payload = _http_json(url)
-    home, away = home.upper(), away.upper()
+    out: dict[
+        tuple[str, str], tuple[Optional[ProbablePitcher], Optional[ProbablePitcher]]
+    ] = {}
     for day in payload.get("dates", []):
         for g in day.get("games", []):
             h = _canon_from_mlb_api(
@@ -227,16 +293,29 @@ def fetch_probable_pitchers(
             a = _canon_from_mlb_api(
                 g["teams"]["away"]["team"].get("abbreviation", "")
             )
-            if h == home and a == away:
-                home_pp = g["teams"]["home"].get("probablePitcher") or {}
-                away_pp = g["teams"]["away"].get("probablePitcher") or {}
-                hid = home_pp.get("id")
-                aid = away_pp.get("id")
-                return (
-                    int(hid) if hid is not None else None,
-                    int(aid) if aid is not None else None,
-                )
-    return None, None
+            home_pp = _parse_probable_pitcher(
+                g["teams"]["home"].get("probablePitcher")
+            )
+            away_pp = _parse_probable_pitcher(
+                g["teams"]["away"].get("probablePitcher")
+            )
+            out[(h, a)] = (home_pp, away_pp)
+    return out
+
+
+def fetch_probable_pitchers(
+    game_date: date,
+    home: str,
+    away: str,
+) -> tuple[Optional[int], Optional[int]]:
+    """Probable starter IDs for an upcoming game (pregame inference)."""
+    home_pp, away_pp = lookup_probables_for_matchup(
+        fetch_probables_for_date(game_date), home, away
+    )
+    return (
+        home_pp.player_id if home_pp is not None else None,
+        away_pp.player_id if away_pp is not None else None,
+    )
 
 
 def _cache_path(cache_dir: Path, game_pk: int) -> Path:
