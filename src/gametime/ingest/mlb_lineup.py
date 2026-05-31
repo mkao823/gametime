@@ -337,6 +337,7 @@ def download_lineup_games(
     cache_dir: Optional[Path] = None,
     boxscore_cache_dir: Optional[Path] = None,
     pause: float = 0.12,
+    max_dates: Optional[int] = None,
 ) -> Path:
     games = pd.read_parquet(games_path)
     table = build_lineup_games_table(
@@ -345,6 +346,7 @@ def download_lineup_games(
         cache_dir=cache_dir,
         boxscore_cache_dir=boxscore_cache_dir,
         pause=pause,
+        max_dates=max_dates,
     )
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

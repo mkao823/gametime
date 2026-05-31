@@ -41,6 +41,8 @@ Config (after [W6-statsapi-games](mlb_ensemble_roadmap.md#w6-statsapi-games--cop
 gametime-download --config configs/mlb.yaml
 ```
 
+**W10 sidecar backfill (2021+ train seasons):** `pitcher_min_season` and `lineup_min_season` default to **2021** (earliest `train.train_seasons`). On download, if train-season coverage for `has_starting_pitcher` or `has_lineup` falls below `sidecar_train_min_frac` (default **0.85**), the corresponding sidecar is rebuilt from MLB Stats API boxscores (cached under `data/mlb/raw/pitcher_boxscores`). Force a full refresh with `refresh_pitcher_games: true` / `refresh_lineup_games: true` in config. For dev smoke tests only, set `pitcher_max_dates` / `lineup_max_dates` to limit API dates. Games without parseable boxscore lineups keep `has_lineup=0` and team wOBA proxy values — never faked as confirmed lineups.
+
 Confirm processed games include yesterday:
 
 ```bash
