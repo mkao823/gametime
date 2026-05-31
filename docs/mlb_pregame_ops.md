@@ -77,7 +77,7 @@ Member list in config must match `pregame.ensemble.members` (13 members as of W6
 | **Linear** (weighted average) | `use_stacking: false` | Uses `weights` in `ensemble.json` |
 | **Stacked** (Ridge meta-learner) | `use_stacking: true` | Uses `stacker` in `ensemble.json` (fit on val only) |
 
-Config currently has `use_stacking: true` (stacked inference). **W6-eval 13-member holdout (2025 test):** `ensemble_stacked` beats linear `ensemble` on total MAE (3.582 vs 3.609) and margin MAE (3.500 vs 3.505) but **loses on winner%** (53.9% vs 55.7%). Recommend keeping **`use_stacking: false`** at inference unless product accepts ~1.8 pp winner hit for ~0.03 runs total MAE. Re-run `gametime-pregame-train` after member or split changes; holdout uses historical SP from `pitcher_games.parquet` (live Prob SP / distinct FIP is inference-only).
+Production default is **linear** (`use_stacking: false`). **W6-eval 13-member holdout (2025 test):** `ensemble_stacked` beats linear `ensemble` on total MAE (3.582 vs 3.609) and margin MAE (3.500 vs 3.505) but **loses on winner%** (53.9% vs 55.7%); we ship linear at inference unless product accepts ~1.8 pp winner hit for ~0.03 runs total MAE. Re-run `gametime-pregame-train` after member or split changes; holdout uses historical SP from `pitcher_games.parquet` (live Prob SP / distinct FIP is inference-only).
 
 Both modes require the same `ensemble.json` artifact from `gametime-pregame-train`; the stacker block is always written at train time.
 
