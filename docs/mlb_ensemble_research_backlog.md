@@ -259,7 +259,7 @@ Re-run `gametime-pregame-train` + decorrelation audit after **each** new member.
 | Field | Value |
 |-------|-------|
 | **Branch** | `docs/mlb-ensemble/r1-research-backlog` |
-| **Commit** | *(pending commit)* |
+| **Commit** | `38e4eec` |
 | **Merged** | No |
 | **Top 3** | **P1** SP/lineup backfill · **P2** bullpen fatigue · **P3** Statcast offense |
 | **Files changed** | `docs/mlb_ensemble_research_backlog.md`, `docs/mlb_ensemble_roadmap.md`, `src/gametime/pregame/baseball/features.py` (comment only) |
