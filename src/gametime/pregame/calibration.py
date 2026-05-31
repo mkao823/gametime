@@ -196,3 +196,182 @@ def save_band_calibration(cal: MarginBandCalibration, path: Path) -> None:
 
 def load_band_calibration(path: Path) -> MarginBandCalibration:
     return MarginBandCalibration.from_dict(json.loads(path.read_text()))
+
+
+@dataclass
+class TotalCalibration:
+    """Post-ensemble affine or isotonic mapping for game totals."""
+
+    type: str = "affine"
+    slope: float = 1.0
+    intercept: float = 0.0
+    x_knots: list[float] | None = None
+    y_knots: list[float] | None = None
+    clip_min: float = 3.0
+    clip_max: float = 20.0
+    fit_split: str = "val"
+    val_season: int | None = None
+    n_fit: int = 0
+
+    def apply(self, total_raw: float | np.ndarray) -> float | np.ndarray:
+        raw = np.asarray(total_raw, dtype=float)
+        if self.type == "isotonic" and self.x_knots and self.y_knots:
+            x = np.asarray(self.x_knots, dtype=float)
+            y = np.asarray(self.y_knots, dtype=float)
+            cal = np.interp(raw, x, y)
+        else:
+            cal = self.slope * raw + self.intercept
+        cal = np.clip(cal, self.clip_min, self.clip_max)
+        if np.isscalar(total_raw):
+            return float(cal)
+        return cal
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TotalCalibration":
+        return cls(**{k: data[k] for k in cls.__dataclass_fields__ if k in data})
+
+
+def _fit_affine_total(
+    pred: np.ndarray, actual: np.ndarray
+) -> tuple[float, float]:
+    slope, intercept = np.polyfit(pred, actual, 1)
+    return float(slope), float(intercept)
+
+
+def _fit_isotonic_total(
+    pred: np.ndarray,
+    actual: np.ndarray,
+    *,
+    clip_min: float = 3.0,
+    clip_max: float = 20.0,
+) -> tuple[list[float], list[float]]:
+    from sklearn.isotonic import IsotonicRegression
+
+    iso = IsotonicRegression(out_of_bounds="clip")
+    iso.fit(pred, actual)
+    x_knots = iso.X_thresholds_.tolist()
+    y_knots = np.clip(iso.y_thresholds_, clip_min, clip_max).tolist()
+    return x_knots, y_knots
+
+
+def fit_total_calibration(
+    pred_total: np.ndarray,
+    actual_total: np.ndarray,
+    *,
+    val_season: int | None = None,
+    clip_min: float = 3.0,
+    clip_max: float = 20.0,
+) -> TotalCalibration:
+    """Fit affine total calibration; fall back to isotonic if affine does not help."""
+    pred = np.asarray(pred_total, dtype=float)
+    actual = np.asarray(actual_total, dtype=float)
+    n_fit = int(len(pred))
+    if n_fit < 10:
+        return TotalCalibration(
+            fit_split="val",
+            val_season=val_season,
+            n_fit=n_fit,
+            clip_min=clip_min,
+            clip_max=clip_max,
+        )
+
+    mae_before = float(np.mean(np.abs(pred - actual)))
+    slope, intercept = _fit_affine_total(pred, actual)
+    affine = TotalCalibration(
+        type="affine",
+        slope=slope,
+        intercept=intercept,
+        fit_split="val",
+        val_season=val_season,
+        n_fit=n_fit,
+        clip_min=clip_min,
+        clip_max=clip_max,
+    )
+    mae_affine = float(np.mean(np.abs(affine.apply(pred) - actual)))
+
+    x_knots, y_knots = _fit_isotonic_total(
+        pred, actual, clip_min=clip_min, clip_max=clip_max
+    )
+    isotonic = TotalCalibration(
+        type="isotonic",
+        x_knots=x_knots,
+        y_knots=y_knots,
+        fit_split="val",
+        val_season=val_season,
+        n_fit=n_fit,
+        clip_min=clip_min,
+        clip_max=clip_max,
+    )
+    mae_isotonic = float(np.mean(np.abs(isotonic.apply(pred) - actual)))
+
+    if mae_isotonic + 1e-9 < mae_affine and mae_isotonic + 1e-9 < mae_before:
+        return isotonic
+    if mae_affine + 1e-9 < mae_before:
+        return affine
+    return TotalCalibration(
+        fit_split="val",
+        val_season=val_season,
+        n_fit=n_fit,
+        clip_min=clip_min,
+        clip_max=clip_max,
+    )
+
+
+def save_total_calibration(cal: TotalCalibration, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cal.to_dict(), indent=2))
+
+
+def load_total_calibration(path: Path) -> TotalCalibration:
+    return TotalCalibration.from_dict(json.loads(path.read_text()))
+
+
+def load_total_calibration_if_present(model_dir: Path) -> TotalCalibration | None:
+    path = Path(model_dir) / "total_calibration.json"
+    return load_total_calibration(path) if path.exists() else None
+
+
+def total_band_bias(
+    pred_total: np.ndarray,
+    actual_total: np.ndarray,
+) -> dict[str, float | None]:
+    """Mean signed error by actual-total bands (<7, 7–11, >11)."""
+    pred = np.asarray(pred_total, dtype=float)
+    actual = np.asarray(actual_total, dtype=float)
+    bands = {
+        "lt_7": actual < 7.0,
+        "7_11": (actual >= 7.0) & (actual <= 11.0),
+        "gt_11": actual > 11.0,
+    }
+    out: dict[str, float | None] = {}
+    for name, mask in bands.items():
+        if mask.sum() == 0:
+            out[name] = None
+        else:
+            out[name] = float(np.mean(pred[mask] - actual[mask]))
+    return out
+
+
+def total_calibration_metrics(
+    pred_total: np.ndarray,
+    pred_margin: np.ndarray,
+    actual_total: np.ndarray,
+    actual_margin: np.ndarray,
+) -> dict[str, float | dict[str, float | None]]:
+    pred_t = np.asarray(pred_total, dtype=float)
+    pred_m = np.asarray(pred_margin, dtype=float)
+    actual_t = np.asarray(actual_total, dtype=float)
+    actual_m = np.asarray(actual_margin, dtype=float)
+    if len(pred_t) == 0:
+        return {}
+    return {
+        "n": float(len(pred_t)),
+        "total_mae": float(np.mean(np.abs(pred_t - actual_t))),
+        "margin_mae": float(np.mean(np.abs(pred_m - actual_m))),
+        "bias_total": float(np.mean(pred_t - actual_t)),
+        "winner_accuracy": float(np.mean((pred_m > 0) == (actual_m > 0))),
+        "band_bias": total_band_bias(pred_t, actual_t),
+    }
