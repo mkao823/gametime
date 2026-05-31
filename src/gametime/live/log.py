@@ -85,13 +85,11 @@ class LivePredictionLogger:
 
 
 def _append_parquet(path: Path, record: dict, dedupe_key: Optional[str] = None) -> None:
-    row = pd.DataFrame([record])
     if path.exists():
         existing = pd.read_parquet(path)
         if dedupe_key and dedupe_key in existing.columns and record[dedupe_key] in existing[dedupe_key].values:
             existing = existing[existing[dedupe_key] != record[dedupe_key]]
-        all_cols = list(dict.fromkeys([*existing.columns, *row.columns]))
-        existing = existing.reindex(columns=all_cols)
-        row = row.reindex(columns=all_cols)
-        row = pd.concat([existing, row], ignore_index=True, copy=False)
-    row.to_parquet(path, index=False)
+        df = pd.DataFrame(existing.to_dict("records") + [record])
+    else:
+        df = pd.DataFrame([record])
+    df.to_parquet(path, index=False)

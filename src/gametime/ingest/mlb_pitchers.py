@@ -10,6 +10,14 @@ Pre-game discipline:
   - Starter FIP for game G uses only pitching lines from games strictly before G.
   - Rest days = calendar days since the pitcher's previous start (not including G).
 
+Training attaches per-game sidecar columns (``home_sp_fip`` / ``away_sp_fip``) via
+``attach_pitcher()`` — do not change that join semantics.
+
+Live slate inference resolves probable SP IDs from the schedule API, then looks up
+each pitcher's last pre-game FIP from the sidecar with ``fip_prior_for_pitcher_id()``
+(as-of slate date, strictly before that date). Do not rebuild cumulative stats from
+synthetic IP for inference.
+
 Default coverage: seasons >= min_season (2024+). Extend min_season for full history.
 """
 from __future__ import annotations
@@ -18,7 +26,9 @@ import json
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -27,8 +37,12 @@ import pandas as pd
 from gametime.ingest.mlb import _norm_team
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
+# ``team`` hydrate required — ``probablePitcher`` alone omits ``abbreviation`` on team nodes.
+SCHEDULE_PROBABLES_HYDRATE = "probablePitcher,team"
 LEAGUE_FIP = 4.20
 FIP_CONSTANT = 3.10
+_REST_DAYS_DEFAULT = 5.0
+_REST_DAYS_CAP = 30.0
 
 # MLB schedule abbreviations → gametime tricodes
 _MLB_API_TEAM_TO_CANON: dict[str, str] = {
@@ -79,6 +93,67 @@ _PITCHER_GAMES_COLUMNS = [
 
 def _canon_from_mlb_api(abbrev: str) -> str:
     return _MLB_API_TEAM_TO_CANON.get(str(abbrev).strip().upper(), _norm_team(abbrev))
+
+
+_ATHLETICS_TRICODES = frozenset({"ATH", "OAK"})
+
+
+def _team_lookup_variants(tricode: str) -> tuple[str, ...]:
+    """Athletics relocation: slate/API may use ATH or OAK for the same franchise."""
+    code = str(tricode).strip().upper()
+    if code in _ATHLETICS_TRICODES:
+        return ("ATH", "OAK")
+    return (code,)
+
+
+@dataclass(frozen=True)
+class ProbablePitcher:
+    """Probable starter from MLB schedule hydrate (may be empty pre-announcement)."""
+
+    player_id: Optional[int]
+    full_name: Optional[str]
+
+
+def _parse_probable_pitcher(raw: Any) -> Optional[ProbablePitcher]:
+    if not raw or not isinstance(raw, dict):
+        return None
+    pid = raw.get("id")
+    name = raw.get("fullName") or raw.get("name")
+    return ProbablePitcher(
+        player_id=int(pid) if pid is not None else None,
+        full_name=str(name).strip() if name else None,
+    )
+
+
+def pitcher_short_label(pitcher: Optional[ProbablePitcher]) -> str:
+    """Last name for slate table; em dash when TBD."""
+    if pitcher is None or not pitcher.full_name:
+        return "—"
+    parts = pitcher.full_name.split()
+    return parts[-1] if parts else "—"
+
+
+def format_probable_sp_line(
+    away: Optional[ProbablePitcher],
+    home: Optional[ProbablePitcher],
+) -> str:
+    """Away @ home probable labels for slate CLI."""
+    return f"{pitcher_short_label(away)} @ {pitcher_short_label(home)}"
+
+
+def lookup_probables_for_matchup(
+    probables: dict[tuple[str, str], tuple[Optional[ProbablePitcher], Optional[ProbablePitcher]]],
+    home: str,
+    away: str,
+) -> tuple[Optional[ProbablePitcher], Optional[ProbablePitcher]]:
+    """Resolve probables when home/away tricode differs by Athletics alias (ATH vs OAK)."""
+    home, away = home.upper(), away.upper()
+    for h in _team_lookup_variants(home):
+        for a in _team_lookup_variants(away):
+            pair = probables.get((h, a))
+            if pair is not None:
+                return pair
+    return None, None
 
 
 def _http_json(url: str, *, timeout: float = 30.0) -> dict[str, Any]:
@@ -197,18 +272,19 @@ def fetch_schedule_games(game_date: date) -> list[dict[str, Any]]:
     return rows
 
 
-def fetch_probable_pitchers(
+@lru_cache(maxsize=16)
+def fetch_probables_for_date(
     game_date: date,
-    home: str,
-    away: str,
-) -> tuple[Optional[int], Optional[int]]:
-    """Probable starters for an upcoming game (pregame inference)."""
+) -> dict[tuple[str, str], tuple[Optional[ProbablePitcher], Optional[ProbablePitcher]]]:
+    """All probable SPs for a calendar date (one schedule request; cached per date)."""
     url = (
         f"{MLB_STATS_BASE}/schedule?sportId=1&date={game_date.isoformat()}"
-        "&gameType=R&hydrate=probablePitcher"
+        f"&gameType=R&hydrate={SCHEDULE_PROBABLES_HYDRATE}"
     )
     payload = _http_json(url)
-    home, away = home.upper(), away.upper()
+    out: dict[
+        tuple[str, str], tuple[Optional[ProbablePitcher], Optional[ProbablePitcher]]
+    ] = {}
     for day in payload.get("dates", []):
         for g in day.get("games", []):
             h = _canon_from_mlb_api(
@@ -217,16 +293,29 @@ def fetch_probable_pitchers(
             a = _canon_from_mlb_api(
                 g["teams"]["away"]["team"].get("abbreviation", "")
             )
-            if h == home and a == away:
-                home_pp = g["teams"]["home"].get("probablePitcher") or {}
-                away_pp = g["teams"]["away"].get("probablePitcher") or {}
-                hid = home_pp.get("id")
-                aid = away_pp.get("id")
-                return (
-                    int(hid) if hid is not None else None,
-                    int(aid) if aid is not None else None,
-                )
-    return None, None
+            home_pp = _parse_probable_pitcher(
+                g["teams"]["home"].get("probablePitcher")
+            )
+            away_pp = _parse_probable_pitcher(
+                g["teams"]["away"].get("probablePitcher")
+            )
+            out[(h, a)] = (home_pp, away_pp)
+    return out
+
+
+def fetch_probable_pitchers(
+    game_date: date,
+    home: str,
+    away: str,
+) -> tuple[Optional[int], Optional[int]]:
+    """Probable starter IDs for an upcoming game (pregame inference)."""
+    home_pp, away_pp = lookup_probables_for_matchup(
+        fetch_probables_for_date(game_date), home, away
+    )
+    return (
+        home_pp.player_id if home_pp is not None else None,
+        away_pp.player_id if away_pp is not None else None,
+    )
 
 
 def _cache_path(cache_dir: Path, game_pk: int) -> Path:
@@ -393,37 +482,47 @@ def load_pitcher_games(path: Path | None) -> pd.DataFrame:
     return df
 
 
-def rebuild_cum_stats_from_sidecar(
+def fip_prior_for_pitcher_id(
     pitcher_games: pd.DataFrame,
     games: pd.DataFrame,
-) -> dict[int, _PitcherCumStats]:
-    """Replay sidecar + boxscore cache is not needed if we only need latest FIP from sidecar rows."""
-    # Rebuild from chronological sidecar by re-walking games with known lines is heavy;
-    # for inference, use last known fip in sidecar per pitcher id.
-    cum: dict[int, _PitcherCumStats] = {}
-    if pitcher_games.empty:
-        return cum
+    player_id: int,
+    as_of_date: date,
+) -> tuple[float, float]:
+    """Last sidecar pre-game FIP and rest days for a pitcher strictly before ``as_of_date``."""
+    if pitcher_games.empty or games.empty:
+        return LEAGUE_FIP, _REST_DAYS_DEFAULT
+
     merged = pitcher_games.merge(
-        games[["game_id", "game_date"]], on="game_id", how="left"
-    ).sort_values("game_date")
-    for _, row in merged.iterrows():
-        gd = pd.to_datetime(row["game_date"]).normalize()
-        for side, id_col, fip_col in (
-            ("home", "home_sp_id", "home_sp_fip"),
-            ("away", "away_sp_id", "away_sp_fip"),
-        ):
-            pid = row.get(id_col)
-            if pid is None or pd.isna(pid):
-                continue
-            pid_i = int(pid)
-            st = cum.setdefault(pid_i, _PitcherCumStats())
-            # Treat sidecar fip as prior; after row, we don't have line — keep last_start only
-            st.last_start = gd
-            # Approximate cum from reported prior fip at league avg IP if unknown
-            if st.ip <= 0 and pd.notna(row.get(fip_col)):
-                st.ip = 30.0
-                st.hr = 3.0
-                st.bb = 10.0
-                st.hbp = 1.0
-                st.so = 25.0
-    return cum
+        games[["game_id", "game_date"]], on="game_id", how="inner"
+    )
+    if merged.empty:
+        return LEAGUE_FIP, _REST_DAYS_DEFAULT
+
+    merged["game_date"] = pd.to_datetime(merged["game_date"]).dt.normalize()
+    as_of = pd.Timestamp(as_of_date).normalize()
+    prior = merged[merged["game_date"] < as_of]
+    if prior.empty:
+        return LEAGUE_FIP, _REST_DAYS_DEFAULT
+
+    pid = int(player_id)
+    home_rows = prior[prior["home_sp_id"].notna() & (prior["home_sp_id"].astype(int) == pid)]
+    away_rows = prior[prior["away_sp_id"].notna() & (prior["away_sp_id"].astype(int) == pid)]
+
+    appearances: list[pd.DataFrame] = []
+    if not home_rows.empty:
+        appearances.append(
+            home_rows[["game_date", "home_sp_fip"]].rename(columns={"home_sp_fip": "sp_fip"})
+        )
+    if not away_rows.empty:
+        appearances.append(
+            away_rows[["game_date", "away_sp_fip"]].rename(columns={"away_sp_fip": "sp_fip"})
+        )
+    if not appearances:
+        return LEAGUE_FIP, _REST_DAYS_DEFAULT
+
+    hist = pd.concat(appearances, ignore_index=True).sort_values("game_date")
+    latest = hist.iloc[-1]
+    fip = float(latest["sp_fip"]) if pd.notna(latest["sp_fip"]) else LEAGUE_FIP
+    last_date = latest["game_date"].date()
+    rest = float(max(0, min((as_of_date - last_date).days, _REST_DAYS_CAP)))
+    return fip, rest

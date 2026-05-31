@@ -9,9 +9,8 @@ import pandas as pd
 
 from gametime.ingest.mlb_pitchers import (
     LEAGUE_FIP,
-    _PitcherCumStats,
     fetch_probable_pitchers,
-    rebuild_cum_stats_from_sidecar,
+    fip_prior_for_pitcher_id,
 )
 from gametime.pregame.baseball.models.base import BaseballMemberModel
 from gametime.pregame.baseball.prediction import MemberPrediction
@@ -113,17 +112,17 @@ def latest_pitcher_columns(
     pitcher_games: pd.DataFrame,
     game_date: Optional[date] = None,
 ) -> dict[str, float]:
-    """Inference row pitcher columns (probable SP + cumulative FIP when available)."""
-    game_date = game_date or date.today()
-    cum = rebuild_cum_stats_from_sidecar(pitcher_games, games)
-    home_id, away_id = fetch_probable_pitchers(game_date, home, away)
-    gd = pd.Timestamp(game_date).normalize()
+    """Inference row pitcher columns (probable SP + sidecar FIP lookup as-of slate date)."""
+    as_of = game_date or date.today()
+    home_id, away_id = fetch_probable_pitchers(as_of, home, away)
 
     if home_id and away_id:
-        home_fip = cum.get(int(home_id), _PitcherCumStats()).fip_prior()
-        away_fip = cum.get(int(away_id), _PitcherCumStats()).fip_prior()
-        home_rest = cum.get(int(home_id), _PitcherCumStats()).rest_days(gd)
-        away_rest = cum.get(int(away_id), _PitcherCumStats()).rest_days(gd)
+        home_fip, home_rest = fip_prior_for_pitcher_id(
+            pitcher_games, games, int(home_id), as_of
+        )
+        away_fip, away_rest = fip_prior_for_pitcher_id(
+            pitcher_games, games, int(away_id), as_of
+        )
         has_sp = 1
     else:
         home_fip, home_rest = _team_latest_sp_fip(pitcher_games, games, home.upper())

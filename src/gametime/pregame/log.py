@@ -54,14 +54,12 @@ def log_pregame_prediction(
         "blowout_prob": pred.blowout_prob,
     }
 
-    row = pd.DataFrame([record])
     if path.exists():
         existing = pd.read_parquet(path)
-        all_cols = list(dict.fromkeys([*existing.columns, *row.columns]))
-        existing = existing.reindex(columns=all_cols)
-        row = row.reindex(columns=all_cols)
-        row = pd.concat([existing, row], ignore_index=True, copy=False)
-    row.to_parquet(path, index=False)
+        df = pd.DataFrame(existing.to_dict("records") + [record])
+    else:
+        df = pd.DataFrame([record])
+    df.to_parquet(path, index=False)
     return path
 
 

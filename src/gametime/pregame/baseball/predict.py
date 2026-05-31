@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
@@ -248,8 +249,10 @@ class BaseballPregamePredictor:
         home: str,
         away: str,
         is_playoff: bool = False,
+        game_date: Optional[date] = None,
     ) -> BaseballPregamePrediction:
         home, away = home.upper(), away.upper()
+        as_of = game_date or date.today()
         row_df = build_inference_row(
             home=home,
             away=away,
@@ -273,6 +276,7 @@ class BaseballPregamePredictor:
                 away=away,
                 games=self.games,
                 pitcher_games=self._pitcher_games,
+                game_date=as_of,
             )
         )
         row_df = row_df.assign(
