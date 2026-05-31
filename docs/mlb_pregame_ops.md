@@ -77,9 +77,11 @@ Member list in config must match `pregame.ensemble.members` (13 members as of W6
 | **Linear** (weighted average) | `use_stacking: false` | Uses `weights` in `ensemble.json` |
 | **Stacked** (Ridge meta-learner) | `use_stacking: true` | Uses `stacker` in `ensemble.json` (fit on val only) |
 
-Config currently has `use_stacking: true` (stacked inference). **W6-eval 13-member holdout (2025 test):** `ensemble_stacked` beats linear `ensemble` on total MAE (3.582 vs 3.609) and margin MAE (3.500 vs 3.505) but **loses on winner%** (53.9% vs 55.7%). Recommend keeping **`use_stacking: false`** at inference unless product accepts ~1.8 pp winner hit for ~0.03 runs total MAE. Re-run `gametime-pregame-train` after member or split changes; holdout uses historical SP from `pitcher_games.parquet` (live Prob SP / distinct FIP is inference-only).
+Production default is **linear** (`use_stacking: false`). **W6-eval 13-member holdout (2025 test):** `ensemble_stacked` beats linear `ensemble` on total MAE (3.582 vs 3.609) and margin MAE (3.500 vs 3.505) but **loses on winner%** (53.9% vs 55.7%); we ship linear at inference unless product accepts ~1.8 pp winner hit for ~0.03 runs total MAE. Re-run `gametime-pregame-train` after member or split changes; holdout uses historical SP from `pitcher_games.parquet` (live Prob SP / distinct FIP is inference-only).
 
 Both modes require the same `ensemble.json` artifact from `gametime-pregame-train`; the stacker block is always written at train time.
+
+**13 members (production):** `lgbm`, `heuristic`, `runs_strength`, `poisson`, `pythagorean`, `pitcher`, `park_factor`, `weather`, `lineup`, `travel_rest`, `series_context`, `elo`, `h2h`. Adding members requires `pregame-train` and val refit. **W6l (XGBoost)** is in the roadmap but **not scheduled** — W6-eval decorrelation audit showed r ≥ 0.94 vs incumbents; see [W6l](mlb_ensemble_roadmap.md#w6l--xgboost-gated).
 
 ## Single game
 
@@ -143,4 +145,4 @@ Columns include matchup, `pred_total`, `pred_margin`, `winner_tricode`, form cou
 | `No train rows for member refit` | Check `train.train_seasons` in config |
 | Team predict error | Team may lack history in `games.parquet` (expansion/rename); check tricode aliases in ingest |
 
-See `docs/mlb_ensemble_roadmap.md` (W7) for scope and ensemble roadmap.
+See `docs/mlb_ensemble_roadmap.md` ([Current state](#current-state-may-2026), W7) for scope and ensemble roadmap.
