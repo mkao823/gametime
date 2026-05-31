@@ -81,11 +81,11 @@ Production default is **linear** (`use_stacking: false`). **W6-eval 13-member ho
 
 Both modes require the same `ensemble.json` artifact from `gametime-pregame-train`; the stacker block is always written at train time.
 
-**13 members (production):** `lgbm`, `heuristic`, `runs_strength`, `poisson`, `pythagorean`, `pitcher`, `park_factor`, `weather`, `lineup`, `travel_rest`, `series_context`, `elo`, `h2h`. Adding members requires `pregame-train` and val refit. **W6l (XGBoost)** is gated out. **W9 total calibration** (next feature) — post-blend mapping on val; see [W9](mlb_ensemble_roadmap.md#w9--total-calibration).
+**13 members (production):** see roadmap [Current state](mlb_ensemble_roadmap.md#current-state-may-2026). **Research backlog:** [mlb_ensemble_research_backlog.md](mlb_ensemble_research_backlog.md).
 
-## Total calibration (W9 — when shipped)
+## Total calibration (W9 — optional)
 
-When `pregame.calibration.total_enabled: true`, the ensemble linear `pred_total` is mapped through `models/mlb/pregame/total_calibration.json` (fit on val only). **`pred_margin` and winner are unchanged in v1.** Re-run `gametime-pregame-train` after enabling or changing calibrator. Check `pregame_summary.json` → `total_calibration` for before/after holdout metrics.
+`pregame.calibration.total_enabled` (default **`false`**). When true, `pred_total` passes through `models/mlb/pregame/total_calibration.json` (val-fit). Re-run `gametime-pregame-train` after toggling.
 
 ## Single game
 

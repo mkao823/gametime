@@ -28,13 +28,14 @@ Production track is **`main`** (direct merge; `feature/mlb-ensemble-integration`
 | W6-sp-live-fip + slate precision | ✅ Merged — live Prob SP + distinct FIP on slate |
 | W6-eval 13-member refresh | ✅ Merged — holdout go/no-go in `docs/mlb_pregame_ops.md` |
 | Production blend | **`use_stacking: false`** (linear weights) — 2025 test winner 55.7% vs stacked 53.9% |
-| **W9 total calibration** | ▶ **Next feature window** — [W9 prompt](#w9--total-calibration-copy-paste-worker-prompt) |
-| **W6l XGBoost** | ❌ **Do not assign** — [W6-eval decorrelation audit](#w6-eval--holdout-splits-recommended) |
+| **W9 total calibration** | ✅ Merged — `total_enabled: false` (marginal test MAE gain; tail bias remains) |
+| **R1 ensemble research** | ✅ Complete — [research backlog](mlb_ensemble_research_backlog.md) |
+| **W6l XGBoost** | ❌ **Do not assign** — decorrelation audit (r ≥ 0.94) |
 | **W6a Vegas** | ⏸ Deferred — no `ODDS_API_KEY` |
 
 **Daily ops:** `gametime-download` → `gametime-pregame-slate --regular-season --decimals 2` (no `pregame-train` unless members/splits change). See `docs/mlb_pregame_ops.md`.
 
-**Quality audits:** re-run `gametime-pregame-train` and inspect `reports/mlb/eval/pregame_summary.json`, `val_predictions.parquet`, `test_predictions.parquet` — see [W6-eval](#w6-eval--holdout-splits-recommended).
+**Research backlog:** [docs/mlb_ensemble_research_backlog.md](mlb_ensemble_research_backlog.md) — ranked proposals from R1; orchestrator assigns implementation windows from this doc only after research Handoff.
 
 ---
 
@@ -144,15 +145,16 @@ Metrics below are **val 2024 / test 2025** (re-run train after config or member 
 
 ### Recommended windows (orchestrator assignment order)
 
-| Order | Window | Branch | Focus | When |
-|-------|--------|--------|-------|------|
-| **▶ NEXT** | **W9 total calibration** | `w9-total-calibration` | Post-blend `pred_total` mapping on val; fix regression-to-mean | After W6-eval / linear prod — [prompt](#w9--total-calibration-copy-paste-worker-prompt) |
+| Order | Window | Branch / doc | Focus | When |
+|-------|--------|--------------|-------|------|
+| **▶ NEXT** | **W10 SP/lineup coverage** | `w10-sp-lineup-coverage` | Backfill train sidecars; fix 0% lineup train coverage | [R1 backlog #1](mlb_ensemble_research_backlog.md) |
 | — | **Maintenance** | — | `gametime-download` + slate | Ongoing |
-| 0 | **W6-eval refresh** | `w6-eval-13member-refresh` | 13-member val/test + decorrelation audit | ✅ May 2026; re-run if splits or members change |
-| 1 | **Linear prod blend** | `w6-stack-linear-prod` | `use_stacking: false` at inference | ✅ Shipped |
+| — | **W9 total calibration** | `w9-total-calibration` | Post-blend total mapping | ✅ Merged; `total_enabled: false` |
+| — | **W6-eval refresh** | `w6-eval-13member-refresh` | 13-member holdout + decorrelation audit | ✅ May 2026 |
+| — | **Linear prod blend** | `w6-stack-linear-prod` | `use_stacking: false` | ✅ Shipped |
 | 2 | **W6a** | `w6a-vegas` | Market blend / member | ⏸ deferred — needs odds |
-| — | **W6l XGBoost** | `w6l-xgb` | XGB on same `FEATURE_COLUMNS` as LGBM | ❌ **Gated out** — see [W6l](#w6l--xgboost-gated) |
-| — | **W9b win-prob calibration** | `w9b-win-prob-calibration` | Platt/isotonic on `win_prob_home` | After W9 if winner% still misaligned |
+| — | **W6l XGBoost** | `w6l-xgb` | XGB on same `FEATURE_COLUMNS` | ❌ gated |
+| — | **W9b win-prob cal** | `w9b-win-prob-calibration` | Platt/isotonic on `win_prob_home` | Low priority — winner% OK on test |
 
 **Do not prioritize:** W6l (XGB on same columns as LGBM), extra form heuristics, or finer grid alone without new signal.
 
@@ -177,7 +179,7 @@ Use this loop for **every** improvement — whether you change one member, add i
 | **Ingest + features** | New signal for `lgbm` *and* orthogonal members; fixes placeholder `has_*` | **W6h** → W6i–k |
 | **Honest measurement** | Val/test must be different RS years; judge go/no-go on **test** | **W6-eval** (shipped) |
 | **Blend discipline** | Caps, optional stacking; small gains if members stay correlated | **W6-max-weight**, **W6-stack-prod** |
-| **Total calibration** | Preds regress to ~8.9 runs; weak on very low/high actual totals | **W9** — post-blend mapping on val |
+| **Total calibration** | Preds regress to ~8.9 runs; weak on very low/high actual totals | **W9** ✅ shipped (`total_enabled: false`); tails need **new signal** — see R1 |
 | **More form-style members** | Errors r≈0.94–1.0 across LGBM / Poisson / runs_strength | Defer **W6l** and duplicate heuristics |
 
 #### Standard iteration loop
@@ -370,7 +372,7 @@ You are the **orchestration agent** for the MLB pregame ensemble in the gametime
 ## Authority
 Follow `docs/mlb_ensemble_roadmap.md` (attached / @docs/mlb_ensemble_roadmap.md). Do not invent a different architecture.
 
-**Default next window:** **W9 total calibration** — [W9 prompt](#w9--total-calibration-copy-paste-worker-prompt). **Do not assign W6l (XGB)** — gated by decorrelation audit. **W6a** deferred. Re-open W6-eval refresh only if members or splits change.
+**Default next window:** **W10 SP/lineup coverage** — [P1](mlb_ensemble_research_backlog.md#p1--historical-sp--lineup-sidecar-backfill). Implementation workers start only from ranked `recommend: implement` rows in `docs/mlb_ensemble_research_backlog.md`. **Do not assign W6l (XGB)**. **W6a** deferred unless research unblocks odds ingest.
 
 ## Your job (this chat only)
 1. **Audit** — Phases P0–P4 + W6b–W6g: files, `reports/mlb/eval/pregame_summary.json`, `models/mlb/pregame/ensemble.json`.
@@ -566,7 +568,9 @@ Run **A** before adding many members. **D** items depend on `features.py` ingest
 | W6-statsapi-games, W6-sp-live-fip, W7, W8 | ✅ done | hybrid games, live FIP, slate CLI, slate backtest |
 | W6-eval 13-member refresh | ✅ done | decorrelation audit gates W6l |
 | Linear prod blend | ✅ done | `use_stacking: false` |
-| **W9 total calibration** | ▶ **next** | Post-ensemble total mapping — [prompt](#w9--total-calibration-copy-paste-worker-prompt) |
+| W9 total calibration | ✅ done | `total_enabled: false`; isotonic val-fit |
+| **R1 research** | ✅ done | Feature/member proposals — [backlog](mlb_ensemble_research_backlog.md) |
+| **W10 SP/lineup coverage** | ▶ **next** | [P1](mlb_ensemble_research_backlog.md#p1--historical-sp--lineup-sidecar-backfill) |
 | **W6a** | **⏸ deferred** | No `ODDS_API_KEY`; skip unless user un-defers |
 | **W6l XGBoost** | ❌ **gated out** | [W6l](#w6l--xgboost-gated) — r ≥ 0.94 vs incumbents on test |
 
@@ -968,7 +972,7 @@ Brainstormed **additional approaches** beyond v1’s heuristic + LGBM + runs_str
 | **Linear weights** | Meta | v1 / W6e | `fit_weights` grid on val — add floors, finer step |
 | **Stacking** | Meta | W6c | Ridge on member OOF preds (val only) |
 | **Vegas blend** | Post | W6a ⏸ | `pred = (1-α)*model + α*market` — **deferred** (no API key) |
-| **Total calibration** | Post | **W9** ▶ | Val-fit mapping on **ensemble `pred_total`** → `pred_total_cal`; fixes regression-to-mean on low/high games |
+| **Total calibration** | Post | **W9** ✅ | Val-fit isotonic on `pred_total`; prod off by default |
 | **Win-prob calibration** | Post | W9b (future) | Platt / isotonic on `win_prob_home` vs outcomes — separate from total |
 | **Quantiles** | Post | future | Member quantile LGBM → interval for total |
 
@@ -980,8 +984,9 @@ main
   ├── W6h–W6k, W6m–W6o (13 members)                        ✅
   ├── W6-statsapi-games, W6-sp-live-fip, W7, W8             ✅
   ├── W6-eval 13-member refresh + linear prod blend         ✅
-  ├── W9-total-calibration ▶                               post-blend total mapping (val fit)
-  ├── W6l-xgb                                               ❌ gated (decorrelation audit)
+  ├── W9-total-calibration                                    ✅ (default off)
+  ├── R1-research ▶                                          proposals → research_backlog.md
+  ├── W6l-xgb                                               ❌ gated
   └── W6a-vegas                                             ⏸ deferred
 ```
 
@@ -1019,9 +1024,15 @@ Track in `features.py` FEATURE_ROADMAP; flip `has_*` flags when columns are popu
 | W6-statsapi-games | ✅ | `w6-statsapi-games` | Hybrid games.parquet backfill |
 | W6-sp-live-fip | ✅ | `w6-sp-live-fip` | Live Prob SP + distinct FIP on slate |
 | W6l | ❌ gated | `w6l-xgb` | XGBoost member — [W6l](#w6l--xgboost-gated) |
-| W9 | ▶ **next** | `w9-total-calibration` | Post-blend total calibration — [W9](#w9--total-calibration) |
+| W9 | ✅ | `w9-total-calibration` | Total calibration (default off) |
+| R1 | ✅ | `docs/mlb-ensemble/r1-research-backlog` | Research backlog — [backlog doc](mlb_ensemble_research_backlog.md) |
+| W10 | ▶ **next** | `w10-sp-lineup-coverage` | SP/lineup sidecar backfill for train — [P1](#proposed-next-features-research-backlog) |
+| W11 | recommend | `w11-bullpen-fatigue` | Bullpen fatigue member + features — [P2](#proposed-next-features-research-backlog) |
+| W12 | recommend | `w12-statcast-offense` | Statcast team offense features — [P3](#proposed-next-features-research-backlog) |
+| W13 | recommend | `w13-lineup-platoon-v2` | Platoon-aware lineup member — [P7](#proposed-next-features-research-backlog) |
+| W14 | recommend | `w14-quantile-total` | Quantile total intervals (meta) — [P8](#proposed-next-features-research-backlog) |
 
-Each row → full copy-paste prompt via [W6 worker prompt template](#w6-worker-prompt-template) + scope from [Member catalog](#member-catalog). **W9** uses its [dedicated prompt](#w9--total-calibration-copy-paste-worker-prompt).
+Each row → full copy-paste prompt via [W6 worker prompt template](#w6-worker-prompt-template) + scope from [Member catalog](#member-catalog). **W9** uses its [dedicated prompt](#w9--total-calibration-copy-paste-worker-prompt). **W10+** scopes from [research backlog](mlb_ensemble_research_backlog.md).
 
 ---
 
@@ -1127,6 +1138,8 @@ Branch, commit, merged to main yes/no, sample slate output for today's date, any
 ---
 
 ## W9 — Total calibration
+
+**Status: shipped (May 2026)** — branch `w9-total-calibration` merged; `pregame.calibration.total_enabled: false` by default. Isotonic val-fit; test total MAE 3.609→3.595; tail bias largely unchanged. See Handoff in git history.
 
 **Purpose:** Fix **regression-to-the-mean** on ensemble game totals. W6-eval 13-member holdout shows linear `ensemble` test total MAE **3.609** and winner **55.7%**, but predicted totals cluster near league average (~8.9 runs) while actuals span roughly **5–14**. Weight grid and new correlated members cannot fix this; a **post-blend calibration layer** on `pred_total` is the next roadmap feature (aside from deferred Vegas).
 
@@ -1263,6 +1276,206 @@ gametime-pregame-slate --config configs/mlb.yaml --regular-season --decimals 2
 - Winner% before/after on test (must be within 0.5 pp or justify)
 - Recommend `total_enabled: true/false` for prod config
 - Files changed
+````
+
+---
+
+## R1 — Ensemble research (feature & member discovery)
+
+**Purpose:** After 13 members + W9 calibration, **marginal gains require orthogonal signal** — not duplicate trees or weight tuning. R1 is a **read-only research agent** that inventories data gaps, evaluates candidate features/members, and produces a **ranked backlog** for the orchestrator. **No production code** in R1 except updating docs.
+
+**Deliverables:**
+
+| Output | Path |
+|--------|------|
+| Research report + ranked proposals | `docs/mlb_ensemble_research_backlog.md` |
+| Roadmap sync | [Proposed next features](#proposed-next-features-research-backlog) section below (summary table) |
+| Optional analysis artifacts | `reports/mlb/eval/research/` (parquet/json; gitignored OK) |
+
+**Known constraints (do not re-propose without new evidence):**
+
+- W6l XGB on `FEATURE_COLUMNS` — **gated** (r ≥ 0.94 vs incumbents)
+- W6a / `market` member — **deferred** without odds ingest
+- W9 total calibration — **shipped**, prod off; tails need wider pred **range** from features
+- `has_starting_pitcher_frac` / `has_lineup_frac` ~**0.43** overall; train **0.0** for lineup — ingest gap
+- 13-member linear ensemble test: total MAE **3.609**, winner **55.7%**
+
+### Proposed next features (research backlog)
+
+Full ranked proposals live in **[docs/mlb_ensemble_research_backlog.md](mlb_ensemble_research_backlog.md)** (maintained by R1). Orchestrator assigns implementation windows **only** from rows marked `recommend: implement`.
+
+| ID | Proposal | Type | Hypothesis | Window | Recommend |
+|----|----------|------|------------|--------|-----------|
+| **P1** | Historical SP + lineup sidecar backfill | Ingest + LGBM | Train lineup 0% → 85%+; tail bias −0.5+ on &lt;7 band | **W10-sp-lineup-coverage** | **implement** |
+| **P2** | Bullpen fatigue / pen usage member | Member + features | Orthogonal to SP; targets &gt;11 band (ens MAE 6.22) | **W11-bullpen-fatigue** | **implement** |
+| **P3** | Statcast team x offense (xwOBA, barrel%) | Feature + member | True talent beyond form; widen pred σ | **W12-statcast-offense** | **implement** |
+| **P7** | Lineup platoon v2 vs SP hand | Member + features | `lineup` beats ens on &lt;7/7–9 bands when sidecars exist | **W13-lineup-platoon-v2** | **implement** |
+| **P8** | Quantile total LGBM (P10/P90) | Meta | O/U intervals; tail uncertainty product | **W14-quantile-total** | **implement** |
+| P4 | Closing total market member | Member (market) | Best orthogonal signal; blocked on odds ingest | W15-market-closing | spike |
+| P5 | Umpire K/BB tendency | Feature | Run environment by crew | W16-umpire | spike |
+
+Full ranked list (12 proposals), error anatomy, and decorrelation plans: **[mlb_ensemble_research_backlog.md](mlb_ensemble_research_backlog.md)**.
+
+### R1 — Ensemble research (copy-paste agent prompt)
+
+````markdown
+@docs/mlb_ensemble_roadmap.md
+@docs/mlb_pregame_ops.md
+
+You are the **R1 research agent** for the MLB pregame ensemble in gametime.
+
+## Role
+**Read-only research** — propose additional **features** and **ensemble members** that could improve holdout performance. You do **not** implement train/predict code, open PRs, or assign yourself implementation windows.
+
+## Authority
+- `docs/mlb_ensemble_roadmap.md` — member catalog, Iteration SOP, W6-eval decorrelation rules, W9 outcomes
+- `docs/mlb_pregame_ops.md` — production ops and coverage notes
+- `src/gametime/pregame/baseball/features.py` — `FEATURE_COLUMNS`, `FEATURE_ROADMAP`
+- `reports/mlb/eval/pregame_summary.json` — coverage fractions, member metrics (run train locally if missing)
+- `reports/mlb/eval/val_predictions.parquet`, `test_predictions.parquet` — decorrelation analysis
+
+## Git (required)
+Research updates **docs only** on a short-lived branch:
+
+```bash
+git fetch origin
+git checkout main
+git pull origin main
+git checkout -b docs/mlb-ensemble/r1-research-backlog
+```
+
+Commit when deliverables are complete (user may push).
+
+**Commit message:** `docs: R1 MLB ensemble research backlog and proposed features`
+
+## Research process (follow in order)
+
+### 1. Baseline audit
+- List **13 shipped members** and their solo test metrics from `pregame_summary.json`
+- Note **coverage**: `has_starting_pitcher_frac`, `has_lineup_frac`, `has_weather_frac`, train vs val vs test splits
+- Summarize **W9 outcome**: isotonic could not fix tail bias; pred_total range ~7.86–10.06 on val
+- Re-state **decorrelation gate**: new members need plausible r < 0.94 vs incumbents on test total errors
+
+### 2. Error anatomy
+Using `test_predictions.parquet` (and val):
+- MAE and **bias_total** by **actual_total** bands (<7, 7–9, 9–11, >11)
+- MAE by **pred_total** terciles — where does ensemble fail?
+- Which **solo members** beat ensemble on any band (if any)?
+- Export summary to `reports/mlb/eval/research/error_anatomy.json` (optional)
+
+### 3. Feature & data inventory
+For each candidate, document:
+| Field | Content |
+|-------|---------|
+| Signal | What pregame information it captures |
+| Source | pybaseball, Statcast, MLB Stats API, Open-Meteo, odds, manual CSV, etc. |
+| Availability | Historical depth, lag, cost, API key |
+| Leakage risk | Available before first pitch? |
+| Join key | `game_id`, `(date, home, away)`, pitcher_id, … |
+| Affects | `FEATURE_COLUMNS` / new member / both |
+
+Review `FEATURE_ROADMAP` in `features.py` and [Member catalog](#member-catalog). Include **ingest fixes** (P1) as first-class proposals.
+
+### 4. Candidate generation (minimum 8, maximum 15)
+Categories to consider (not all will rank high):
+- **Ingest / coverage** — SP, lineup, bullpen, Statcast team aggregates
+- **Orthogonal members** — market lines, generative run models, simulation
+- **Context** — umpire, travel v2, altitude, day/night, doubleheader fatigue
+- **LGBM-only features** — no new member if signal only helps tree
+- **Meta** — quantiles, stratified calibration by park/weather (not duplicate of W9)
+
+**Explicitly reject or deprioritize** with evidence:
+- XGB / duplicate trees on `FEATURE_COLUMNS` (W6l gated)
+- Same-flavor rolling form heuristics
+- Weight-grid / stacking-only ideas
+
+### 5. Rank proposals
+Score each candidate 1–5 on:
+| Criterion | Question |
+|-----------|----------|
+| **Orthogonality** | Likely decorrelated vs lgbm/pitcher/poisson errors? |
+| **Tail impact** | Could it widen pred_total range or fix low/high bias? |
+| **Coverage** | What fraction of games get non-null signal? |
+| **Effort** | S / M / L ingest + train wiring |
+| **Risk** | Leakage, latency, maintenance |
+
+Sort by expected **test holdout ROI**. Top 3 should be defensible to a skeptical orchestrator.
+
+### 6. Write deliverables
+
+**A. `docs/mlb_ensemble_research_backlog.md`** (create or replace) with:
+
+```markdown
+# MLB pregame ensemble — research backlog (R1)
+
+Generated: <date> · Base commit: <main sha> · Eval: val 2024 / test 2025
+
+## Executive summary
+(3–5 bullets: what's broken, what kind of signal we need, top 3 recommendations)
+
+## Baseline (May 2026)
+(table: ensemble + coverage + decorrelation reminder)
+
+## Ranked proposals
+| Rank | ID | Title | Type | Orthogonality | Tail | Coverage | Effort | Recommend | Suggested window |
+|------|-----|-------|------|---------------|------|----------|--------|-----------|------------------|
+| 1 | P? | … | ingest/member/feature/meta | H/M/L | H/M/L | … | S/M/L | implement / spike / defer | W10-… |
+
+(One subsection per top-5 proposal: signal, source, join, eval plan, decorrelation test, out of scope)
+
+## Deprioritized / rejected
+(bullet list with reason — include W6l, duplicate heuristics)
+
+## Suggested implementation order
+(numbered list for orchestrator — one window per row)
+
+## Open questions
+(data the maintainer must decide)
+```
+
+**B. Update `docs/mlb_ensemble_roadmap.md`:**
+- Refresh [Current state](#current-state-may-2026): R1 complete, link backlog
+- Replace seed table in [Proposed next features](#proposed-next-features-research-backlog) with top-5 summary rows from your ranked list
+- Add any new window stubs (W10, W11, …) one line each in W6 quick index if you recommend implement
+
+**C. Optional:** `src/gametime/pregame/baseball/features.py` — append to `FEATURE_ROADMAP` comment block **only** approved high-priority signals (no code wiring).
+
+## Out of scope
+- Implementing `BaseballMemberModel`, train.py, or predict.py changes
+- Fitting models on test 2025
+- Enabling W9 `total_enabled` or changing ensemble weights
+- Vegas implementation without odds source plan
+
+## Verify
+- [ ] `docs/mlb_ensemble_research_backlog.md` exists and has ≥8 ranked proposals
+- [ ] Roadmap Proposed next features table updated
+- [ ] Every `recommend: implement` row has suggested window ID, data source, and decorrelation test plan
+- [ ] W6l / duplicate tree ideas explicitly rejected
+
+## Handoff (required)
+```markdown
+## Handoff — R1 Research
+
+| Field | Value |
+|-------|-------|
+| Branch | docs/mlb-ensemble/r1-research-backlog |
+| Commit | <sha> |
+| Merged | yes/no |
+
+### Top 3 recommendations
+1. …
+2. …
+3. …
+
+### Files changed
+- docs/mlb_ensemble_research_backlog.md
+- docs/mlb_ensemble_roadmap.md
+- (optional) reports/mlb/eval/research/*
+
+### Orchestrator: next implementation window
+Suggest: **W10 — <title>** from backlog rank #1
+Do **not** self-assign implementation.
+```
 ````
 
 ---

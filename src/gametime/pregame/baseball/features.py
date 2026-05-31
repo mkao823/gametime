@@ -1,10 +1,16 @@
 """MLB pregame features: rolling team form + placeholders for future context.
 
 FEATURE_ROADMAP (not yet wired):
-  - starting_pitcher SPxRA/FIP, bullpen fatigue
-  - lineup wOBA / platoon splits
-  - park factor, roof/dome
-  - weather (temp, wind, humidity via open meteo or retrosheet)
+  - starting_pitcher SPxRA/FIP, bullpen fatigue  [R1 P2 — W11]
+  - lineup wOBA / platoon splits  [partial W6k; R1 P7 platoon v2 — W13]
+  - park factor, roof/dome  [W6i shipped]
+  - weather (temp, wind, humidity via open meteo or retrosheet)  [W6j shipped]
+  - R1 high-priority (see docs/mlb_ensemble_research_backlog.md):
+    - historical SP/lineup sidecar backfill for train [P1 — W10]
+    - Statcast team x offense: xwOBA, barrel%, hard-hit% [P3 — W12]
+    - bullpen IP/rest rolling 3d, pen vs starter FIP delta [P2 — W11]
+    - park × weather interaction (wind×HR factor) [P10 — spike]
+    - SP Stuff+ / pitch-mix from Statcast [P9 — spike]
 """
 from __future__ import annotations
 
