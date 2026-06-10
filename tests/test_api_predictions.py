@@ -177,3 +177,37 @@ def test_unknown_tricode_422(client):
 def test_game_not_on_slate_404(client):
     resp = client.get("/v1/game?home=CHC&away=STL&date=2024-06-15")
     assert resp.status_code == 404
+
+
+def test_slate_start_time_and_order(client, monkeypatch):
+    monkeypatch.setattr(
+        "gametime.api.app.slate_for_date",
+        lambda gt, slate_date, *, regular_season: [
+            {
+                "game_id": "g1",
+                "home": "NYY",
+                "away": "BOS",
+                "start_time": "2024-06-15T17:05:00Z",
+            },
+            {
+                "game_id": "g2",
+                "home": "LAD",
+                "away": "SFG",
+                "start_time": "2024-06-15T20:10:00Z",
+            },
+        ],
+    )
+
+    def _predict_side_effect(*, home, away, is_playoff, game_date):
+        return _sample_prediction(home=home, away=away, is_playoff=is_playoff)
+
+    client.app.state.gt.predictor.predict.side_effect = _predict_side_effect
+
+    resp = client.get("/v1/slate?date=2024-06-15")
+    assert resp.status_code == 200
+    games = resp.json()["games"]
+    assert len(games) == 2
+    assert games[0]["away"] == "BOS"
+    assert games[0]["start_time"] == "2024-06-15T17:05:00Z"
+    assert games[1]["away"] == "SFG"
+    assert games[1]["start_time"] == "2024-06-15T20:10:00Z"

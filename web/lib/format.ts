@@ -83,6 +83,16 @@ export function formatDisplayDate(isoDate: string): string {
   }).format(date);
 }
 
+export function formatStartTime(isoUtc: string): string {
+  const d = new Date(isoUtc);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(d);
+}
+
 export function localTodayIso(): string {
   const d = new Date();
   const y = d.getFullYear();

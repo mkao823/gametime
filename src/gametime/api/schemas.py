@@ -51,6 +51,9 @@ class GamePrediction(BaseModel):
     member_margins: Optional[dict[str, float]] = Field(
         None, description="Per-member home margin; present when include_members=true."
     )
+    start_time: Optional[str] = Field(
+        None, description="Scheduled first pitch (ISO-8601 UTC from MLB Stats API gameDate)."
+    )
 
 
 class SlateResponse(BaseModel):

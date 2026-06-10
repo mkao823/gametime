@@ -413,6 +413,20 @@ def pregame_train(argv=None):
     print(json.dumps(meta, indent=2, default=str))
 
 
+def _format_slate_start_utc(start_time: str | None) -> str:
+    """Format ISO UTC gameDate as HH:MM (UTC) for slate CLI table."""
+    if not start_time:
+        return ""
+    from datetime import datetime
+
+    text = str(start_time).replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return ""
+    return dt.strftime("%H:%M")
+
+
 def pregame_slate(argv=None):
     from datetime import date
 
@@ -544,6 +558,7 @@ def pregame_slate(argv=None):
         rows.append(
             {
                 "matchup": f"{away} @ {home}",
+                "start": _format_slate_start_utc(m.get("start_time")),
                 "prob_sp": format_probable_sp_line(away_pp, home_pp),
                 "total": pred.pred_total,
                 "margin": pred.pred_margin,
@@ -556,16 +571,18 @@ def pregame_slate(argv=None):
         dec = max(0, int(args.decimals))
         num_w = max(6, dec + 4)
         w_matchup = max(len(r["matchup"]) for r in rows)
+        w_start = max(len("Start"), max(len(r["start"]) for r in rows))
         w_prob = max(len("Prob SP"), max(len(r["prob_sp"]) for r in rows))
         header = (
-            f"{'Matchup':<{w_matchup}}  {'Prob SP':<{w_prob}}  "
+            f"{'Matchup':<{w_matchup}}  {'Start':<{w_start}}  {'Prob SP':<{w_prob}}  "
             f"{'Total':>{num_w}}  {'Margin':>{num_w + 1}}  Winner"
         )
         print(header)
         print("-" * len(header))
         for r in rows:
             print(
-                f"{r['matchup']:<{w_matchup}}  {r['prob_sp']:<{w_prob}}  "
+                f"{r['matchup']:<{w_matchup}}  {r['start']:<{w_start}}  "
+                f"{r['prob_sp']:<{w_prob}}  "
                 f"{r['total']:{num_w}.{dec}f}  "
                 f"{r['margin']:+{num_w + 1}.{dec}f}  {r['winner']}"
             )

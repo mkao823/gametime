@@ -13,6 +13,7 @@ export interface GamePrediction {
   away_form_n: number;
   member_totals?: Record<string, number>;
   member_margins?: Record<string, number>;
+  start_time?: string | null;
 }
 
 export interface SlateResponse {

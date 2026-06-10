@@ -154,7 +154,10 @@ def create_app(*, state: Optional[AppState] = None) -> FastAPI:
             games.append(
                 GamePrediction(
                     **to_game_prediction(
-                        pred, slate_date, include_members=include_members
+                        pred,
+                        slate_date,
+                        include_members=include_members,
+                        start_time=m.get("start_time"),
                     )
                 )
             )
