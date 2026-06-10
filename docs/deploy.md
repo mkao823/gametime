@@ -1,14 +1,45 @@
 # Production deployment — MLB slate site
 
-End-to-end hosting for the public MLB slate:
+End-to-end hosting for the public MLB slate.
+
+## Free MVP (recommended)
+
+**Vercel** (frontend) + **local Docker API** + **Cloudflare Tunnel** (public HTTPS).
+
+| Layer | Provider |
+|-------|----------|
+| Frontend | Vercel Hobby — `web/` |
+| API | Local `docker compose up api` |
+| Public HTTPS | Cloudflare Tunnel → `http://127.0.0.1:8000` |
+| Data refresh | Host `crontab` or manual `gametime-download` |
+
+**Full runbook:** [deploy-local-tunnel.md](deploy-local-tunnel.md)
+
+```text
+User → https://<vercel-domain>/
+     → Next.js /api/slate (server)
+     → https://<tunnel-hostname>/v1/slate
+          ↑ cloudflared on local machine
+          ↑ docker compose api :8000
+```
+
+Set `GAMETIME_API_URL` on Vercel to your tunnel hostname (e.g. `https://api.example.com`).
+
+Local Docker/Fly scaffolding lives in `Dockerfile`, `docker-compose.yml`, and `fly.toml` (TASK-28).
+
+---
+
+## Alternate: Fly.io (paid)
+
+Cloud-hosted API with persistent volume and optional GitHub Actions cron (TASK-29). Use this if you do not want a machine running at home.
 
 - **Vercel** — Next.js app in `web/` (Hobby tier)
 - **Fly.io** — Python predictions API (`gametime.api.app`) with persistent volume
 - **GitHub Actions** — optional daily `gametime-download` on the Fly volume (TASK-29)
 
-Local Docker/Fly scaffolding lives in `Dockerfile`, `docker-compose.yml`, and `fly.toml` (TASK-28).
+> **Local-tunnel MVP:** TASK-29 Fly workflow is **optional** and **not used** when following [deploy-local-tunnel.md](deploy-local-tunnel.md). The workflow file `.github/workflows/mlb-data-refresh.yml` remains in the repo for Fly deploys; local MVP uses host cron instead.
 
-## Architecture
+### Architecture
 
 ```text
 User → https://<vercel-domain>/
@@ -18,7 +49,7 @@ User → https://<vercel-domain>/
 
 The browser only talks to Vercel. `GAMETIME_API_URL` is read on the **Next.js server** when proxying `/api/health` and `/api/slate` to Fly. CORS on the Python API is not required for the public site.
 
-## Prerequisites
+### Prerequisites
 
 | Item | Notes |
 |------|--------|
@@ -28,7 +59,7 @@ The browser only talks to Vercel. `GAMETIME_API_URL` is read on the **Next.js se
 | Local `data/` + `models/mlb/pregame/` | From `gametime-download` + `gametime-pregame-train` for first volume seed |
 | TASK-28 on `main` | `Dockerfile`, `fly.toml` at repo root (merged) |
 
-## Volume layout (`GAMETIME_ROOT=/data`)
+### Volume layout (`GAMETIME_ROOT=/data`)
 
 Paths in `configs/mlb.yaml` are relative to `GAMETIME_ROOT`. On Fly and in `docker-compose`, the persistent tree looks like:
 
@@ -42,7 +73,7 @@ Paths in `configs/mlb.yaml` are relative to `GAMETIME_ROOT`. On Fly and in `dock
 
 The Docker image contains application code and default `configs/` under `/app/configs`, but **`GAMETIME_CONFIG=configs/mlb.yaml` resolves under `/data`**, so production config must exist on the volume (see seed steps below). Local `docker-compose` bind-mounts `./configs` → `/data/configs`.
 
-## Local Docker (smoke before Fly)
+### Local Docker (smoke before Fly)
 
 **Prereqs:** host `data/` and `models/mlb/pregame/` populated (see [mlb_pregame_ops.md](mlb_pregame_ops.md)).
 
@@ -62,7 +93,7 @@ export GAMETIME_API_URL=http://127.0.0.1:8000
 npm run dev
 ```
 
-## Fly API deploy
+### Fly API deploy
 
 `fly.toml` defaults (TASK-28):
 
@@ -73,7 +104,7 @@ npm run dev
 | Volume `source` | `gametime_data` → `/data` |
 | VM | shared-cpu-1x, 512mb (bump to 1gb if OOM during predictor init) |
 
-### Step-by-step
+#### Step-by-step
 
 1. Install [flyctl](https://fly.io/docs/hands-on/install-flyctl/) and log in.
 
@@ -133,11 +164,11 @@ curl -s https://gametime-api.fly.dev/health | python3 -m json.tool
 
 Replace `gametime-api` with your Fly app name. Expect `games_max_date` ≥ yesterday after a successful download.
 
-### Sizing
+#### Sizing
 
 `fly.toml` starts at **shared-cpu-1x / 512mb**. LightGBM + 13-member ensemble load can OOM at 512mb; set `memory = "1gb"` under `[vm]` if the machine restarts during predictor init.
 
-## Vercel frontend deploy
+### Vercel frontend deploy
 
 1. Import the GitHub repo in the [Vercel dashboard](https://vercel.com/new).
 2. Set **Root Directory** to `web` (monorepo setting).
@@ -154,7 +185,7 @@ Do **not** set `NEXT_PUBLIC_API_URL` to the Fly URL for browser direct calls —
 
 `web/vercel.json` pins the Next.js framework preset; root directory `web` is configured in the Vercel project settings.
 
-## Secrets and environment variables
+### Secrets and environment variables
 
 | Secret / variable | Where | Purpose |
 |-------------------|-------|---------|
@@ -163,7 +194,7 @@ Do **not** set `NEXT_PUBLIC_API_URL` to the Fly URL for browser direct calls —
 | `FLY_APP_URL` | GitHub Actions secrets (optional) | Deploy smoke — `https://<app>.fly.dev` |
 | `VERCEL_PRODUCTION_URL` | GitHub Actions secrets (optional) | Deploy smoke — production site URL |
 
-### Create `FLY_API_TOKEN` (TASK-29 cron)
+#### Create `FLY_API_TOKEN` (TASK-29 cron)
 
 ```bash
 fly tokens create deploy -x 999999h
@@ -171,7 +202,7 @@ fly tokens create deploy -x 999999h
 
 Add the token as `FLY_API_TOKEN` in **GitHub → Settings → Secrets and variables → Actions**.
 
-## Daily data refresh (TASK-29)
+### Daily data refresh (TASK-29)
 
 GitHub Actions runs `gametime-download` **on the Fly volume** so `games.parquet` stays current:
 
@@ -216,7 +247,7 @@ fly ssh console -a gametime-api -C "pip install -q -e '/app[mlb]' && gametime-do
 
 Until cron is enabled, re-run download via `fly ssh console` or the workflow manually after games complete. Ensemble retrain is **not** on schedule — trigger `gametime-pregame-train` manually when members change.
 
-## Optional deploy smoke workflow
+### Optional deploy smoke workflow
 
 `.github/workflows/deploy-smoke.yml` — `workflow_dispatch` only.
 
@@ -226,7 +257,7 @@ Curls Fly `/health` and the Vercel homepage when secrets are set. Skips graceful
 gh workflow run deploy-smoke.yml
 ```
 
-## Alternates (not recommended for MVP)
+### Other alternates
 
 | Option | Tradeoff |
 |--------|----------|
@@ -234,7 +265,7 @@ gh workflow run deploy-smoke.yml
 | [Render](https://render.com) free tier | Service sleeps; cold start on first request |
 | Oracle / generic VM | Full control; you manage OS, TLS, and volume backups |
 
-## Cost notes
+### Cost notes (Fly path)
 
 | Layer | MVP expectation |
 |-------|-----------------|
@@ -244,7 +275,7 @@ gh workflow run deploy-smoke.yml
 
 Monitor Fly billing after enabling `min_machines_running = 1`.
 
-## Troubleshooting
+### Troubleshooting (Fly path)
 
 | Symptom | Check |
 |---------|--------|
@@ -254,8 +285,12 @@ Monitor Fly billing after enabling `min_machines_running = 1`.
 | `ensemble_members` empty in health | Models missing on volume — seed `models/mlb/pregame/` |
 | Browser CORS errors | Client should call `/api/slate`, not Fly directly — fix any `NEXT_PUBLIC_API_URL` misuse |
 
+---
+
 ## Related
 
+- [deploy-local-tunnel.md](deploy-local-tunnel.md) — **recommended** free MVP runbook
 - [mlb_pregame_ops.md](mlb_pregame_ops.md) — download, train, local API
 - `Dockerfile`, `docker-compose.yml`, `fly.toml` at repo root (TASK-28)
 - `web/README.md` — BFF env vars for Next.js
+- `config/cloudflared.yml.example` — named tunnel template

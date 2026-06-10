@@ -1,173 +1,66 @@
-# gametime
+# gametime web
 
-Pregame and in-game sports prediction. This repo includes:
+Next.js app for the public MLB slate site (TASK-23+).
 
-- **NBA** — in-game total score model + pregame (Elo/LGBM, optional Vegas blend)
-- **MLB** — pregame **ensemble** for game total runs and winner (no live in-game model yet)
-
----
-
-## MLB pregame ensemble
-
-MLB pregame predicts **total runs** and **home margin** (winner from margin sign) using multiple independent **members**, then blends them. Training uses regular-season history; weights and the stacker are fit on **val 2024** only; **test 2025** is a held-out report.
-
-### Approach
-
-1. **Members** — Each member outputs `pred_total` and `pred_margin` per game (heuristics, generative models, ingest-backed context, etc.).
-2. **Linear blend** — Grid-searched weights on validation (`min_member_weight` / `max_member_weight` in config).
-3. **Ridge stacking (production)** — With `use_stacking: true`, final preds are a ridge meta-model on member outputs (coefficients fit on val, frozen for test/inference). Slate backtest and `gametime-pregame` use stacking when enabled.
-4. **No leakage** — Features and sidecars use only information available before first pitch; retro slate backtest uses `game_date < slate_date`.
-
-### Current members (see `configs/mlb.yaml`; typically 13)
-
-| Member | Signal |
-|--------|--------|
-| `lgbm` | Gradient boosting on rolling form + context columns |
-| `heuristic` | Short-window team form |
-| `runs_strength` | 30-game offensive/defensive strength |
-| `poisson` | Poisson / run-rate generative totals |
-| `pythagorean` | Pythagorean expectation → implied runs |
-| `pitcher` | Starting pitcher quality (M1 sidecar) |
-| `park_factor` | Home park run environment |
-| `weather` | Game-time weather (Open-Meteo sidecar) |
-| `lineup` | Lineup wOBA / platoon (M4 sidecar) |
-| `travel_rest` | Schedule fatigue (rest, games in 3d, road streak) |
-| `series_context` | Same-opponent series game index + prior-game style |
-| `elo` | Baseball Elo ratings |
-| `h2h` | Shrunk head-to-head history |
-
-**Backlog (roadmap):** optional `market` / Vegas (deferred). See [docs/mlb_ensemble_roadmap.md](docs/mlb_ensemble_roadmap.md).
-
-### Feature roadmap (ingest → `has_*` flags)
-
-| Milestone | Unlocks | Status |
-|-----------|---------|--------|
-| M1 Starting pitcher | `pitcher` | Shipped |
-| M2 Park factors | `park_factor` | Shipped |
-| M3 Weather | `weather` | Shipped |
-| M4 Lineups | `lineup` | Shipped (W6k) |
-| M5 Historical odds | `market` member | Deferred (no `ODDS_API_KEY`) |
-
-Placeholder columns in `FEATURE_COLUMNS` (`has_lineup`, etc.) flip to `1` when ingest populates real data.
-
-### Game data (hybrid ingest)
-
-| Layer | Source | Role |
-|-------|--------|------|
-| **Bulk history** | pybaseball `schedule_and_record` | Full-season rebuild of `games.parquet` (completed games with `R`/`RA`) |
-| **Recent gap-fill** | MLB Stats API (`statsapi.mlb.com`) | After each download, append **Final** games through yesterday when BR lags |
-
-Config (`configs/mlb.yaml`): `games_statsapi_backfill_days`, `games_statsapi_game_types` (default `[R]`). For **playoffs**, set `games_statsapi_postseason_enabled: true` and use `games_statsapi_postseason_types` (`P`, `W`, `F`, `D`, `L`) — see [roadmap W6-statsapi-games](docs/mlb_ensemble_roadmap.md#w6-statsapi-games--copy-paste-worker-prompt).
-
-Daily check: `max(game_date)` in parquet should be **≥ yesterday** before running slate.
-
-### MLB commands
+## Setup
 
 ```bash
-pip install -e '.[mlb]'
-
-gametime-download --config configs/mlb.yaml
-gametime-pregame-train --config configs/mlb.yaml
-# → models/mlb/pregame/ensemble.json, reports/mlb/eval/pregame_summary.json
-
-gametime-pregame --config configs/mlb.yaml --home NYY --away BOS --regular-season
-gametime-pregame-slate --config configs/mlb.yaml --date $(date +%Y-%m-%d) --regular-season
-
-# Honest retro eval (no same-day leakage)
-gametime-pregame-slate-backtest --config configs/mlb.yaml --days 14 --regular-season
+cd web
+npm install
 ```
 
-**Docs:** [docs/mlb_pregame_ops.md](docs/mlb_pregame_ops.md) (ops + slate backtest), [docs/mlb_ensemble_roadmap.md](docs/mlb_ensemble_roadmap.md) (phases, worker windows, iteration SOP).
+## Development
 
-**Config:** `configs/mlb.yaml` — seasons, `pregame.ensemble.members`, `use_stacking`, val/test splits.
-
-### Deploy (public slate)
-
-Production hosting: **Vercel** (`web/`) + **Fly.io** (predictions API). See [docs/deploy.md](docs/deploy.md) for the full runbook (Fly volume seed, Vercel env vars, optional cron and smoke checks).
-
----
-
-## NBA — playoff vs regular season
-
-| Split | Purpose |
-|-------|---------|
-| **Train (RS)** | 2021–2023 regular season — volume, stable pace |
-| **Val (RS)** | 2024 regular season — early stopping / tuning |
-| **Test (PO)** | 2024 playoffs — held-out eval (current slate) |
-
-## NBA commands
+Run the Python predictions API and the Next.js dev server in separate terminals:
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+# Terminal 1 — API (repo root)
+pip install -e '.[api]'
+uvicorn gametime.api.app:app --reload
 
-# Data: regular + playoff PBP (seasontype: both in config)
-gametime-download
-gametime-build
-gametime-train
-
-# Held-out playoff test + by-phase / by-season tables
-gametime-eval
-# → reports/eval/summary.json, mae_by_phase.csv, mae_by_season.csv
-
-# Peak/trough signal backtest on playoff test set
-gametime-backtest-signals
-# → reports/signals/summary.json
-
-# Live (auto-dated JSON: reports/live/live_20260525_NYK_CLE.json)
-gametime-live --away NYK --home CLE --interval 30
-
-# Include Kalshi implied O/U + spread (public API, no key)
-gametime-live --away SAS --home OKC --interval 30 --kalshi
-
-# Or custom name (date added if omitted): reports/live_nyk_cle.json -> live_20260525_nyk_cle.json
-gametime-live --away NYK --home CLE --json-out reports/live_nyk_cle.json
-
-# All logged games — aggregate phase MAE
-gametime-analyze-live
-
-# Single game — tier breakdown, pace story, timeline CSV
-gametime-analyze-game --away OKC --home SAS
-# → reports/live_analysis/0042500314_timeline.csv
-# → reports/live_analysis/0042500314_summary.json
+# Terminal 2 — web
+cd web
+npm run dev
 ```
 
-## NBA pre-game prediction
+Open [http://localhost:3000](http://localhost:3000). Try a historical date, e.g. [/?date=2024-06-15](http://localhost:3000/?date=2024-06-15).
 
-Two CLIs sit alongside the in-game model: a **pure** team-features model (Elo +
-last-10 form, no betting data) and a **Vegas-blended** variant that combines the
-pure model with the live spread/total.
+The browser calls same-origin **`/api/health`**, **`/api/slate`**, and **`/api/game`** route handlers; those proxies fetch the Python API server-side (no CORS setup required in the browser).
+
+## Production build
 
 ```bash
-# One-time: build team_games.parquet, fit Elo, train LightGBM total + margin
-gametime-pregame-train
-# → models/pregame/{total_final,margin_final}.txt, elo_state.json, meta.json
-# → reports/eval/pregame_summary.json (val + playoff test MAE, winner accuracy)
-
-# Pure model (no Vegas)
-gametime-pregame --away SAS --home OKC
-
-# Vegas-blended (needs ODDS_API_KEY from https://the-odds-api.com/)
-export ODDS_API_KEY=...
-gametime-pregame --away SAS --home OKC --with-vegas
-
-# Manual override (skip the API; supply your own line)
-gametime-pregame --away SAS --home OKC --spread -4.5 --total 215.5
-
-# Tune blend weight (0 = model only, 1 = market only; default 0.5)
-gametime-pregame --away SAS --home OKC --with-vegas --vegas-weight 0.7
+npm run build
+npm start
 ```
 
-Pre-game predictions are logged to
-`data/live_predictions/pregame_predictions.parquet` so they can be compared
-against the eventual actual final score after the game.
+## API configuration
 
-Add `--regular-season` if the matchup is not a playoff game (default treats it
-as playoff so the `is_playoff` feature is on).
+| Variable | Used by | Default |
+|----------|---------|---------|
+| `GAMETIME_API_URL` | Server-side proxy (`app/api/*`) | `http://127.0.0.1:8000` |
+| `NEXT_PUBLIC_API_URL` | Fallback if `GAMETIME_API_URL` unset | `http://127.0.0.1:8000` |
 
-## Config
+**Local dev:** leave both unset (defaults to `http://127.0.0.1:8000`) or set `GAMETIME_API_URL=http://127.0.0.1:8000`.
 
-| Sport | Config |
-|-------|--------|
-| NBA | `configs/default.yaml` — `train.test_season`, `train.test_seasontype: po`, `data.seasons` |
-| MLB | `configs/mlb.yaml` — ensemble members, val/test seasons, ingest paths |
+**Vercel production (local API + Cloudflare Tunnel):** set only **`GAMETIME_API_URL`** to your tunnel HTTPS URL, e.g. `https://api.example.com` (named tunnel) or `https://<random>.trycloudflare.com` (quick tunnel for dev smoke). Do not point `NEXT_PUBLIC_API_URL` at the tunnel — the browser uses same-origin `/api/health` and `/api/slate` only.
+
+**Vercel production (Fly.io alternate):** `GAMETIME_API_URL=https://gametime-api.fly.dev`.
+
+Deploy steps: [docs/deploy-local-tunnel.md](../docs/deploy-local-tunnel.md) (recommended) or [docs/deploy.md](../docs/deploy.md) (Fly alternate).
+
+## Routes
+
+| Route | Description |
+|-------|-------------|
+| `/` | Daily slate with date picker and game cards |
+| `/mlb` | Redirects to `/` |
+| `/methodology` | Methodology markdown |
+| `/disclaimer` | Legal disclaimer |
+| `/about` | About page |
+| `/mlb/game?home=&away=&date=` | Game detail with predicted scoreline and member breakdown |
+| `/api/game` | BFF proxy to `GET /v1/game` (`include_members=true`) |
+
+## Content
+
+Markdown pages load from `content/` at build time. See `content/README.md` for frontmatter conventions.
