@@ -1,0 +1,34 @@
+# Optional post-deploy smoke checks. Skips steps when secrets are unset.
+name: Deploy smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fly API health
+        env:
+          FLY_APP_URL: ${{ secrets.FLY_APP_URL }}
+        run: |
+          if [ -z "$FLY_APP_URL" ]; then
+            echo "FLY_APP_URL secret not set — skipping Fly smoke"
+            exit 0
+          fi
+          curl -fsS "${FLY_APP_URL%/}/health" | python3 -m json.tool
+
+      - name: Vercel production homepage
+        env:
+          VERCEL_PRODUCTION_URL: ${{ secrets.VERCEL_PRODUCTION_URL }}
+        run: |
+          if [ -z "$VERCEL_PRODUCTION_URL" ]; then
+            echo "VERCEL_PRODUCTION_URL secret not set — skipping Vercel smoke"
+            exit 0
+          fi
+          status="$(curl -fsS -o /dev/null -w "%{http_code}" "$VERCEL_PRODUCTION_URL")"
+          if [ "$status" != "200" ]; then
+            echo "Expected HTTP 200, got $status"
+            exit 1
+          fi
+          echo "Homepage OK ($status)"

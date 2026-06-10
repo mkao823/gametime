@@ -81,6 +81,10 @@ gametime-pregame-slate-backtest --config configs/mlb.yaml --days 14 --regular-se
 
 **Config:** `configs/mlb.yaml` — seasons, `pregame.ensemble.members`, `use_stacking`, val/test splits.
 
+### Deploy (public slate)
+
+Production hosting: **Vercel** (`web/`) + **Fly.io** (predictions API). See [docs/deploy.md](docs/deploy.md) for the full runbook (Fly volume seed, Vercel env vars, optional cron and smoke checks).
+
 ---
 
 ## NBA — playoff vs regular season
