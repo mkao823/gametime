@@ -52,6 +52,7 @@ from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.ingest.mlb_weather import load_weather_games
 from gametime.ingest.mlb_lineup import load_lineup_games
+from gametime.ingest.mlb_statcast_offense import load_statcast_offense_games
 from gametime.pregame.baseball.models.series_context import (
     SeriesContextMember,
     attach_series_context,
@@ -71,6 +72,10 @@ from gametime.pregame.baseball.models.lineup import (
     LineupMember,
     attach_lineup,
     latest_lineup_columns,
+)
+from gametime.pregame.baseball.models.statcast_offense import (
+    attach_statcast_offense,
+    latest_statcast_offense_columns,
 )
 from gametime.pregame.baseball.prediction import MemberPrediction
 from gametime.pregame.calibration import (
@@ -149,6 +154,7 @@ class BaseballPregamePredictor:
         park_factors_path: str | Path | None = None,
         weather_games_path: str | Path | None = None,
         lineup_games_path: str | Path | None = None,
+        statcast_offense_games_path: str | Path | None = None,
         league_total_fallback: float = 8.5,
         h2h_window: int = 10,
         h2h_shrink_k: float = 8.0,
@@ -197,12 +203,16 @@ class BaseballPregamePredictor:
         self._lineup_games = load_lineup_games(
             Path(lineup_games_path) if lineup_games_path else None
         )
+        self._statcast_games = load_statcast_offense_games(
+            Path(statcast_offense_games_path) if statcast_offense_games_path else None
+        )
 
         table = build_training_table(self.games, form_window=self.form_window)
         table = attach_pitcher(table, self._pitcher_games)
         table = attach_park(table, self.games, self._park_factors)
         table = attach_weather(table, self._weather_games)
         table = attach_lineup(table, self._lineup_games)
+        table = attach_statcast_offense(table, self._statcast_games)
         table = attach_travel_rest(table, self.games)
         table = attach_series_context(table, self.games)
         table = attach_runs_strength(
@@ -305,6 +315,14 @@ class BaseballPregamePredictor:
                 away=away,
                 games=self.games,
                 lineup_games=self._lineup_games,
+            )
+        )
+        row_df = row_df.assign(
+            **latest_statcast_offense_columns(
+                home=home,
+                away=away,
+                games=self.games,
+                statcast_games=self._statcast_games,
             )
         )
         row_df = row_df.assign(

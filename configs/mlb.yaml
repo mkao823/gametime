@@ -28,6 +28,12 @@ data:
   lineup_min_season: 2021
   refresh_lineup_games: false
   # lineup_max_dates: 3  # dev smoke only — limit Stats API dates per download
+  # W12 Statcast offense sidecar (pybaseball statcast daily team aggregates; W12)
+  statcast_offense_games_path: data/mlb/processed/statcast_offense_games.parquet
+  statcast_offense_cache_dir: data/mlb/raw/statcast_offense
+  statcast_offense_min_season: 2021
+  refresh_statcast_offense_games: false
+  # statcast_offense_max_dates: 3  # dev smoke only — limit Statcast API dates per download
   sidecar_train_min_frac: 0.85
 
 train:
