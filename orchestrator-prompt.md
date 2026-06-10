@@ -97,14 +97,13 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 - [x] TASK-10 AGENT_BACKEND W9 total calibration (shipped; `total_enabled: false`)
 - [x] TASK-11 AGENT_QA R1 research backlog (ranked P1–P12 proposals)
 - [x] TASK-12 AGENT_DATA W10 SP/lineup sidecar backfill (`has_lineup_frac_train=1.0`, `main` @ c7eac06)
+- [x] TASK-13 AGENT_DATA W12 Statcast offense — features + LGBM; member **not** shipped (decorrelation r=0.996); merged PR #13 @ `49fbfa9`; test MAE 3.614
 
 ### Active Backlog
 
 #### Epic 1 — MLB ensemble signal (post-W10)
 
-- [ ] **TASK-13** AGENT_DATA **W12 Statcast offense (P3)** — team rolling xwOBA, barrel%, hard-hit%; optional `statcast_offense` member; branch `task/TASK-13-w12-statcast-offense` from `main`. **Next unblocked task.**
-
-- [ ] **TASK-14** AGENT_BACKEND **W13 lineup platoon v2 (P7)** — wOBA vs opposing SP hand; depends on W10 sidecars. Blocked by: TASK-13 recommended first (orthogonal signal); can parallelize if orchestrator approves.
+- [ ] **TASK-14** AGENT_BACKEND **W13 lineup platoon v2 (P7)** — wOBA vs opposing SP hand; depends on W10 sidecars. **Unblocked** after TASK-13 merge.
 
 - [ ] **TASK-15** AGENT_BACKEND **W14 quantile total (P8)** — P10/P90 LightGBM meta; interval slate output. Blocked by: TASK-13/14 stability (orchestrator discretion).
 
@@ -139,14 +138,19 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 | Task | Agent | Status | Blocked By | Notes |
 |------|-------|--------|------------|-------|
 | TASK-01–12 | various | done | — | MLB foundation through W10 |
-| TASK-13 | AGENT_DATA | **todo** | — | **Start here** — W12 Statcast offense |
-| TASK-14 | AGENT_BACKEND | todo | TASK-13 (soft) | W13 platoon v2 |
+| TASK-13 | AGENT_DATA | **done** | — | Merged PR #13; features only, no member |
+| TASK-14 | AGENT_BACKEND | **ready** | — | W13 platoon v2 — **next model task** |
 | TASK-15 | AGENT_BACKEND | todo | TASK-13/14 | W14 quantile |
 | TASK-16 | AGENT_DATA | blocked | odds source | W15 market |
 | TASK-17 | AGENT_BACKEND | todo (optional) | — | W11 v2 retry; low priority |
 | TASK-18 | AGENT_INFRA | todo | — | NBA season rollover; low priority |
 | TASK-19 | AGENT_QA | todo | TASK-18 (soft) | NBA smoke |
 | TASK-20 | AGENT_QA | todo | TASK-13+ | Rolling QA gate |
+| TASK-21 | AGENT_INFRA | done | — | Merged PR #12 — Predictions API v1 |
+| TASK-23 | AGENT_FRONTEND | **in review** | — | PR #14 — app shell |
+| TASK-24 | AGENT_FRONTEND | **ready** | TASK-23 merge (soft) | Prompt: `subagent-prompts/TASK-24-AGENT_FRONTEND.md` |
+| TASK-26 | AGENT_DESIGN | done | — | Merged PR #11 |
+| TASK-27 | AGENT_CONTENT | done | — | Merged PR #10 |
 
 ---
 
