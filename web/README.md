@@ -25,7 +25,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Try a historical date, e.g. [/?date=2024-06-15](http://localhost:3000/?date=2024-06-15).
 
-The browser calls same-origin **`/api/health`** and **`/api/slate`** route handlers; those proxies fetch the Python API server-side (no CORS setup required in the browser).
+The browser calls same-origin **`/api/health`**, **`/api/slate`**, and **`/api/game`** route handlers; those proxies fetch the Python API server-side (no CORS setup required in the browser).
 
 ## Production build
 
@@ -56,7 +56,8 @@ Deploy steps: [docs/deploy.md](../docs/deploy.md).
 | `/methodology` | Methodology markdown |
 | `/disclaimer` | Legal disclaimer |
 | `/about` | About page |
-| `/mlb/game` | Game detail stub (TASK-25) |
+| `/mlb/game?home=&away=&date=` | Game detail with predicted scoreline and member breakdown |
+| `/api/game` | BFF proxy to `GET /v1/game` (`include_members=true`) |
 
 ## Content
 

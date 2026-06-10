@@ -1,15 +1,4 @@
-.page {
+.fallback {
+  max-width: 640px;
   padding-top: var(--space-2);
-}
-
-.title {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-semibold);
-  margin-bottom: var(--space-4);
-}
-
-.note {
-  font-size: var(--font-size-base);
-  color: var(--color-text-secondary);
-  margin: 0;
 }

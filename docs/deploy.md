@@ -26,7 +26,7 @@ The browser only talks to Vercel. `GAMETIME_API_URL` is read on the **Next.js se
 | [Vercel](https://vercel.com) account | Hobby (free) sufficient for MVP |
 | GitHub repo | For optional cron (TASK-29) and smoke workflow |
 | Local `data/` + `models/mlb/pregame/` | From `gametime-download` + `gametime-pregame-train` for first volume seed |
-| Merge TASK-28 | `Dockerfile`, `fly.toml` on `main` before first Fly deploy |
+| TASK-28 on `main` | `Dockerfile`, `fly.toml` at repo root (merged) |
 
 ## Volume layout (`GAMETIME_ROOT=/data`)
 

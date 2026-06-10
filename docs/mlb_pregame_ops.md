@@ -93,7 +93,7 @@ Both modes require the same `ensemble.json` artifact from `gametime-pregame-trai
 
 ## Local API (Predictions API v1)
 
-Read-only HTTP service over the same ensemble as CLI (no train/download in request path).
+Read-only HTTP service over the same ensemble as CLI (no train/download in request path). For Docker / Fly.io volume layout and production seed steps, see [deploy.md](deploy.md).
 
 ```bash
 pip install -e '.[api]'
