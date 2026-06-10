@@ -41,7 +41,11 @@ npm start
 | `GAMETIME_API_URL` | Server-side proxy (`app/api/*`) | `http://127.0.0.1:8000` |
 | `NEXT_PUBLIC_API_URL` | Fallback if `GAMETIME_API_URL` unset | `http://127.0.0.1:8000` |
 
-In production, set **`GAMETIME_API_URL`** to the internal URL of the predictions API (e.g. `http://api:8000`). The Next.js server proxies requests; the browser never calls the Python host directly.
+**Local dev:** leave both unset (defaults to `http://127.0.0.1:8000`) or set `GAMETIME_API_URL=http://127.0.0.1:8000`.
+
+**Vercel production:** set only **`GAMETIME_API_URL`** to the Fly HTTPS URL, e.g. `https://gametime-api.fly.dev`. Do not point `NEXT_PUBLIC_API_URL` at Fly — the browser uses same-origin `/api/health` and `/api/slate` only.
+
+Deploy steps: [docs/deploy.md](../docs/deploy.md).
 
 ## Routes
 
