@@ -159,14 +159,14 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 | TASK-19 | AGENT_QA | todo | TASK-18 (soft) | NBA smoke |
 | TASK-20 | AGENT_QA | todo | TASK-13+ | Rolling QA gate |
 | TASK-21 | AGENT_INFRA | done | — | Merged PR #12 — Predictions API v1 |
-| TASK-23 | AGENT_FRONTEND | **in review** | — | PR #14 — app shell |
-| TASK-24 | AGENT_FRONTEND | **in review** | — | PR #15 |
-| TASK-25 | AGENT_FRONTEND | **ready** | TASK-24 merge (soft) | `TASK-25-AGENT_FRONTEND.md` |
+| TASK-23 | AGENT_FRONTEND | done | — | Merged PR #14 |
+| TASK-24 | AGENT_FRONTEND | done | — | Merged PR #15 |
+| TASK-25 | AGENT_FRONTEND | **in progress** | — | Game detail — `TASK-25-AGENT_FRONTEND.md` |
 | TASK-26 | AGENT_DESIGN | done | — | Merged PR #11 |
 | TASK-27 | AGENT_CONTENT | done | — | Merged PR #10 |
-| TASK-28 | AGENT_INFRA | **ready** | — | Docker + Fly — `TASK-28-AGENT_INFRA.md` |
-| TASK-29 | AGENT_INFRA | todo | TASK-28 | GHA cron → Fly volume |
-| TASK-30 | AGENT_INFRA | todo | TASK-28 | Vercel + Fly runbook |
+| TASK-28 | AGENT_INFRA | **in progress** | — | Docker + Fly — `TASK-28-AGENT_INFRA.md` |
+| TASK-29 | AGENT_INFRA | todo | TASK-28 | GHA cron — prompt ready, not dispatched |
+| TASK-30 | AGENT_INFRA | **in progress** | TASK-28 (soft) | Vercel + Fly — `TASK-30-AGENT_INFRA.md` |
 | TASK-31 | AGENT_QA | todo | TASK-30 | E2E smoke |
 
 ---
