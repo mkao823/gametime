@@ -9,7 +9,7 @@ import re
 import time
 from datetime import date
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import pandas as pd
 
@@ -168,7 +168,6 @@ def slate_from_games_parquet(
                 "home": str(row["home_team"]),
             }
         )
-    out.sort(key=lambda m: (m["away"], m["home"]))
     return out
 
 
@@ -218,7 +217,31 @@ def fetch_slate_from_pybaseball(
                 "home": parsed["home_team"],
             }
 
-    return sorted(by_id.values(), key=lambda m: (m["away"], m["home"]))
+    return list(by_id.values())
+
+
+def _slate_sort_key(matchup: dict[str, Any]) -> tuple[Any, ...]:
+    start_time = matchup.get("start_time")
+    return (start_time is None, start_time or "", matchup["away"], matchup["home"])
+
+
+def _attach_and_sort_slate_matchups(
+    matchups: list[dict[str, str]],
+    target_date: date,
+) -> list[dict[str, Any]]:
+    from gametime.ingest.mlb_schedule import (
+        fetch_slate_times_for_date,
+        lookup_slate_time_for_matchup,
+    )
+
+    times = fetch_slate_times_for_date(target_date)
+    enriched: list[dict[str, Any]] = []
+    for m in matchups:
+        row = dict(m)
+        row["start_time"] = lookup_slate_time_for_matchup(times, m["away"], m["home"])
+        enriched.append(row)
+    enriched.sort(key=_slate_sort_key)
+    return enriched
 
 
 def slate_matchups_for_date(
@@ -228,22 +251,27 @@ def slate_matchups_for_date(
     games_path: Optional[Path] = None,
     teams: Optional[Iterable[str]] = None,
     regular_season_only: bool = True,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Matchups for a calendar day: parquet when available, else pybaseball schedules."""
     season = season_start_year or infer_season_start_year(target_date)
+    matchups: list[dict[str, str]] = []
     if games_path is not None and Path(games_path).exists():
         games = pd.read_parquet(games_path)
         found = slate_from_games_parquet(
             games, target_date, regular_season_only=regular_season_only
         )
         if found:
-            return found
-    return fetch_slate_from_pybaseball(
-        target_date,
-        season,
-        teams=teams,
-        regular_season_only=regular_season_only,
-    )
+            matchups = found
+    if not matchups:
+        matchups = fetch_slate_from_pybaseball(
+            target_date,
+            season,
+            teams=teams,
+            regular_season_only=regular_season_only,
+        )
+    if not matchups:
+        return []
+    return _attach_and_sort_slate_matchups(matchups, target_date)
 
 
 def _parse_schedule_row(

@@ -172,7 +172,7 @@ def slate_for_date(
     slate_date: date,
     *,
     regular_season: bool,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     sport = get_sport(state.settings.cfg)
     season = infer_season_start_year(slate_date)
     return slate_matchups_for_date(
@@ -204,6 +204,7 @@ def to_game_prediction(
     slate_date: date,
     *,
     include_members: bool = False,
+    start_time: Optional[str] = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "home": pred.home_tricode,
@@ -222,4 +223,6 @@ def to_game_prediction(
     if include_members:
         out["member_totals"] = pred.member_totals or {}
         out["member_margins"] = pred.member_margins or {}
+    if start_time is not None:
+        out["start_time"] = start_time
     return out

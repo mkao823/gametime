@@ -3,6 +3,7 @@ import type { GamePrediction } from "@/lib/api-types";
 import {
   formatMargin,
   formatRuns,
+  formatStartTime,
   formatWinPct,
 } from "@/lib/format";
 import styles from "./GameCard.module.css";
@@ -45,6 +46,12 @@ export function GameCard({ game }: GameCardProps) {
             <span className={styles.badge}>Postseason</span>
           )}
         </div>
+
+        {game.start_time && (
+          <p className={styles.startTime}>
+            {formatStartTime(game.start_time)}
+          </p>
+        )}
 
         <div className={styles.stat}>
           <span className={styles.statLabel}>Predicted total</span>
