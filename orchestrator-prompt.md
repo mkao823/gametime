@@ -160,7 +160,8 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 | TASK-20 | AGENT_QA | todo | TASK-13+ | Rolling QA gate |
 | TASK-21 | AGENT_INFRA | done | — | Merged PR #12 — Predictions API v1 |
 | TASK-23 | AGENT_FRONTEND | **in review** | — | PR #14 — app shell |
-| TASK-24 | AGENT_FRONTEND | **ready** | TASK-23 merge (soft) | Prompt: `subagent-prompts/TASK-24-AGENT_FRONTEND.md` |
+| TASK-24 | AGENT_FRONTEND | **in review** | — | PR #15 |
+| TASK-25 | AGENT_FRONTEND | **ready** | TASK-24 merge (soft) | `TASK-25-AGENT_FRONTEND.md` |
 | TASK-26 | AGENT_DESIGN | done | — | Merged PR #11 |
 | TASK-27 | AGENT_CONTENT | done | — | Merged PR #10 |
 | TASK-28 | AGENT_INFRA | **ready** | — | Docker + Fly — `TASK-28-AGENT_INFRA.md` |
