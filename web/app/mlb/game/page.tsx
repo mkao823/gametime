@@ -1,16 +1,46 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
+import { GameDetailView } from "@/components/GameDetailView";
+import { ScorelineSkeleton } from "@/components/ScorelineSkeleton";
 import styles from "./page.module.css";
 
-export const metadata: Metadata = {
-  title: "Game detail",
-  description: "MLB game prediction detail.",
+type PageProps = {
+  searchParams: Promise<{
+    home?: string;
+    away?: string;
+    date?: string;
+  }>;
 };
 
-export default function GameDetailStubPage() {
+export async function generateMetadata({
+  searchParams,
+}: PageProps): Promise<Metadata> {
+  const params = await searchParams;
+  const { home, away } = params;
+  if (home && away) {
+    return {
+      title: `${away} @ ${home}`,
+      description: `MLB pregame ensemble prediction for ${away} at ${home}.`,
+    };
+  }
+  return {
+    title: "Game detail",
+    description: "MLB game prediction detail.",
+  };
+}
+
+function GameDetailFallback() {
   return (
-    <div className={styles.page}>
-      <h1 className={styles.title}>Game detail</h1>
-      <p className={styles.note}>Game detail — TASK-25</p>
+    <div className={styles.fallback}>
+      <ScorelineSkeleton />
     </div>
+  );
+}
+
+export default function GameDetailPage() {
+  return (
+    <Suspense fallback={<GameDetailFallback />}>
+      <GameDetailView />
+    </Suspense>
   );
 }

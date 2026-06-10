@@ -30,6 +30,48 @@ export function formatMargin(
   return `${favored} \u2212${runsFormatter.format(absMargin)}`;
 }
 
+export function formatScoreValue(n: number): string {
+  return runsFormatter.format(n);
+}
+
+export function formatScoreline(
+  away: string,
+  home: string,
+  predAway: number,
+  predHome: number,
+  winner: string
+): {
+  awayScore: string;
+  homeScore: string;
+  awayIsWinner: boolean;
+  homeIsWinner: boolean;
+} {
+  return {
+    awayScore: formatScoreValue(predAway),
+    homeScore: formatScoreValue(predHome),
+    awayIsWinner: winner === away,
+    homeIsWinner: winner === home,
+  };
+}
+
+export function formatMemberMargin(m: number): string {
+  const formatted = runsFormatter.format(m);
+  return m > 0 ? `+${formatted}` : formatted;
+}
+
+export function formatWinnerDetail(
+  home: string,
+  winner: string,
+  winProbHome: number
+): string {
+  const pct =
+    winner === home
+      ? Math.round(winProbHome * 100)
+      : 100 - Math.round(winProbHome * 100);
+  const side = winner === home ? "home" : "away";
+  return `${winner} (${pct}% ${side})`;
+}
+
 export function formatDisplayDate(isoDate: string): string {
   const [year, month, day] = isoDate.split("-").map(Number);
   const date = new Date(year, month - 1, day);
