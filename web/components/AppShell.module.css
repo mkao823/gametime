@@ -1,0 +1,28 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  position: relative;
+}
+
+.main {
+  flex: 1;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .main {
+    padding: var(--space-6);
+  }
+}
+
+.mainProse {
+  max-width: 680px;
+}
+
+.mainGame {
+  max-width: 640px;
+}

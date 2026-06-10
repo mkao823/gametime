@@ -1,0 +1,29 @@
+.footer {
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  margin-top: auto;
+}
+
+.inner {
+  max-width: var(--breakpoint-lg);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .inner {
+    padding: var(--space-6);
+  }
+}
+
+.line {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.copyright {
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
