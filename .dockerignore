@@ -1,0 +1,30 @@
+# Runtime artifacts — mounted from host or Fly volume, not copied into image
+data/
+models/
+reports/
+
+# Frontend (TASK-30); run web locally against the API for v1
+web/
+
+# VCS and local dev
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Agent workflow / docs not needed at runtime
+subagent-prompts/
+_archived/
+.cursor/
+
+# Large or sensitive local files
+.env
+.env.*
+*.parquet
+*.csv
