@@ -121,6 +121,18 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 
 - [ ] **TASK-20** AGENT_QA Verify each shipped MLB window meets standards, decorrelation gate, and existing NBA tests intact
 
+#### Epic 6 — Deployment (Vercel + Fly.io)
+
+> **Default stack:** Vercel Hobby (`web/`) + Fly.io API (Docker volume for `data/` + `models/`) + GitHub Actions cron (TASK-29).
+
+- [ ] **TASK-28** AGENT_INFRA **Docker + Fly scaffold** — `Dockerfile`, `docker-compose.yml`, `fly.toml`, volume layout; branch `task/TASK-28-docker-fly-scaffold`. **Blocked by:** TASK-21.
+
+- [ ] **TASK-29** AGENT_INFRA **Scheduled data refresh** — GHA `mlb-data-refresh.yml` → `fly ssh` + `gametime-download` on volume. **Blocked by:** TASK-28.
+
+- [ ] **TASK-30** AGENT_INFRA **Production deploy runbook** — Vercel (`web/`, `GAMETIME_API_URL`) + Fly deploy docs; optional smoke workflow. **Blocked by:** TASK-28; soft: TASK-23/24 merged.
+
+- [ ] **TASK-31** AGENT_QA **E2E smoke** — Playwright against Vercel + API `/health`. **Blocked by:** TASK-30.
+
 ### Cancelled
 
 > Kept for record. Do not include in planning.
@@ -151,6 +163,10 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 | TASK-24 | AGENT_FRONTEND | **ready** | TASK-23 merge (soft) | Prompt: `subagent-prompts/TASK-24-AGENT_FRONTEND.md` |
 | TASK-26 | AGENT_DESIGN | done | — | Merged PR #11 |
 | TASK-27 | AGENT_CONTENT | done | — | Merged PR #10 |
+| TASK-28 | AGENT_INFRA | **ready** | — | Docker + Fly — `TASK-28-AGENT_INFRA.md` |
+| TASK-29 | AGENT_INFRA | todo | TASK-28 | GHA cron → Fly volume |
+| TASK-30 | AGENT_INFRA | todo | TASK-28 | Vercel + Fly runbook |
+| TASK-31 | AGENT_QA | todo | TASK-30 | E2E smoke |
 
 ---
 

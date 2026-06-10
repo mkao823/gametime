@@ -18,6 +18,9 @@ Workers read only their assigned prompt plus `agents.md`, `STANDARDS.md`, and ta
 | `TASK-24-AGENT_FRONTEND.md` | Daily slate page | **dispatch now** |
 | `TASK-26-AGENT_DESIGN.md` | UX/visual spec | PR #11 |
 | `TASK-27-AGENT_CONTENT.md` | Methodology + trust | PR #10 |
+| `TASK-28-AGENT_INFRA.md` | Docker + Fly scaffold | ready |
+| `TASK-29-AGENT_INFRA.md` | GHA data refresh cron | after TASK-28 |
+| `TASK-30-AGENT_INFRA.md` | Vercel + Fly deploy | after TASK-28 |
 
 **Commit prompts with task branches** so they are not lost — orchestrator should verify `subagent-prompts/TASK-XX-*.md` is included in the task PR or a follow-up docs commit.
 
