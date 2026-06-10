@@ -1,0 +1,38 @@
+# Local integration stack for the predictions API.
+#
+# Prereqs on the host (from repo root):
+#   pip install -e '.[mlb]' && gametime-download --config configs/mlb.yaml
+#   gametime-pregame-train --config configs/mlb.yaml   # if models/ is empty
+#
+# Volume layout (GAMETIME_ROOT=/data):
+#   /data/configs/mlb.yaml          ← ./configs (read-only)
+#   /data/data/mlb/processed/       ← ./data
+#   /data/models/mlb/pregame/       ← ./models
+#
+# Smoke test:
+#   docker compose build api
+#   docker compose up api
+#   curl -s http://127.0.0.1:8000/health | python3 -m json.tool
+#
+# Web (TASK-30): run Next.js locally with GAMETIME_API_URL=http://127.0.0.1:8000
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      GAMETIME_ROOT: /data
+      GAMETIME_CONFIG: configs/mlb.yaml
+    volumes:
+      - ./configs:/data/configs:ro
+      - ./data:/data/data
+      - ./models:/data/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
