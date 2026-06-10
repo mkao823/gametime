@@ -43,9 +43,11 @@ npm start
 
 **Local dev:** leave both unset (defaults to `http://127.0.0.1:8000`) or set `GAMETIME_API_URL=http://127.0.0.1:8000`.
 
-**Vercel production:** set only **`GAMETIME_API_URL`** to the Fly HTTPS URL, e.g. `https://gametime-api.fly.dev`. Do not point `NEXT_PUBLIC_API_URL` at Fly — the browser uses same-origin `/api/health` and `/api/slate` only.
+**Vercel production (local API + Cloudflare Tunnel):** set only **`GAMETIME_API_URL`** to your tunnel HTTPS URL, e.g. `https://api.example.com` (named tunnel) or `https://<random>.trycloudflare.com` (quick tunnel for dev smoke). Do not point `NEXT_PUBLIC_API_URL` at the tunnel — the browser uses same-origin `/api/health` and `/api/slate` only.
 
-Deploy steps: [docs/deploy.md](../docs/deploy.md).
+**Vercel production (Fly.io alternate):** `GAMETIME_API_URL=https://gametime-api.fly.dev`.
+
+Deploy steps: [docs/deploy-local-tunnel.md](../docs/deploy-local-tunnel.md) (recommended) or [docs/deploy.md](../docs/deploy.md) (Fly alternate).
 
 ## Routes
 

@@ -1,0 +1,21 @@
+# Cloudflare Tunnel config for gametime predictions API.
+#
+# Setup:
+#   1. cloudflared tunnel login
+#   2. cloudflared tunnel create gametime-api
+#      → prints TUNNEL_UUID; writes ~/.cloudflared/<TUNNEL_UUID>.json
+#   3. In Zero Trust dashboard → Tunnels → gametime-api → Public Hostname:
+#      api.example.com → http://127.0.0.1:8000
+#      (or CNAME api.example.com → <TUNNEL_UUID>.cfargotunnel.com)
+#   4. Copy this file to ~/.cloudflared/config.yml and replace placeholders.
+#   5. cloudflared tunnel --config ~/.cloudflared/config.yml run
+#
+# Do NOT commit the credentials JSON or a filled config with real UUIDs to Git.
+
+tunnel: <TUNNEL_UUID>
+credentials-file: /path/to/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: api.example.com
+    service: http://127.0.0.1:8000
+  - service: http_status:404

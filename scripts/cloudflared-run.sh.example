@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Example: run a named Cloudflare tunnel for the local API.
+#
+# 1. cp config/cloudflared.yml.example ~/.cloudflared/config.yml
+# 2. Edit tunnel UUID, credentials path, and hostname.
+# 3. cp scripts/cloudflared-run.sh.example scripts/cloudflared-run.sh
+# 4. ./scripts/cloudflared-run.sh
+#
+# Prereq: docker compose api running on http://127.0.0.1:8000
+
+set -euo pipefail
+
+CONFIG="${CLOUDFLARED_CONFIG:-$HOME/.cloudflared/config.yml}"
+
+if [[ ! -f "$CONFIG" ]]; then
+  echo "Missing config: $CONFIG" >&2
+  echo "Copy config/cloudflared.yml.example and fill in tunnel UUID + credentials." >&2
+  exit 1
+fi
+
+exec cloudflared tunnel --config "$CONFIG" run
