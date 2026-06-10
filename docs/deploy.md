@@ -176,19 +176,43 @@ Add the token as `FLY_API_TOKEN` in **GitHub → Settings → Secrets and variab
 GitHub Actions runs `gametime-download` **on the Fly volume** so `games.parquet` stays current:
 
 ```text
-GitHub Actions (cron)
-  → flyctl ssh console -a gametime-api -C "cd /data && ..."
+GitHub Actions (cron 0 14 * * * UTC)
+  → flyctl ssh console -a gametime-api -C "pip install ... && gametime-download ..."
 ```
 
-Workflow: `.github/workflows/mlb-data-refresh.yml` (daily schedule + `workflow_dispatch`).
+Workflow: `.github/workflows/mlb-data-refresh.yml`
 
-**Manual trigger:**
+| Setting | Value |
+|---------|--------|
+| Schedule | `0 14 * * *` (14:00 UTC daily — after most US overnight finals) |
+| Manual | `workflow_dispatch` |
+| `FLY_APP` | Workflow env, default `gametime-api` (must match `fly.toml` `app`) |
+| Secret | `FLY_API_TOKEN` (required) |
+
+Remote command (paths match TASK-28 volume layout):
+
+```bash
+pip install -q -e '/app[mlb]' \
+  && gametime-download --config /data/configs/mlb.yaml
+```
+
+`/app` is the Docker image; `/data` is the mounted volume (`GAMETIME_ROOT=/data`). Config and parquet paths resolve under `/data`.
+
+**Manual trigger (GitHub CLI):**
 
 ```bash
 gh workflow run mlb-data-refresh.yml
 ```
 
-**Success check:** `curl https://<app>.fly.dev/health` → `games_max_date` ≥ yesterday (US game calendar).
+Or **Actions → MLB data refresh → Run workflow** in the GitHub UI.
+
+**Success check:** `curl https://<app>.fly.dev/health` → `games_max_date` ≥ yesterday (US game calendar). The workflow logs `games_max_date` from parquet after download.
+
+**Fallback** if `fly ssh` is unavailable: SSH manually and run the same download command:
+
+```bash
+fly ssh console -a gametime-api -C "pip install -q -e '/app[mlb]' && gametime-download --config /data/configs/mlb.yaml"
+```
 
 Until cron is enabled, re-run download via `fly ssh console` or the workflow manually after games complete. Ensemble retrain is **not** on schedule — trigger `gametime-pregame-train` manually when members change.
 

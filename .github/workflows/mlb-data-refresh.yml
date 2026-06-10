@@ -1,0 +1,37 @@
+# Daily MLB data refresh on the Fly.io volume (TASK-29).
+#
+# Layout (TASK-28):
+#   /app          — repo in Docker image (pyproject.toml, gametime-download)
+#   /data         — persistent volume (GAMETIME_ROOT=/data)
+#   /data/configs/mlb.yaml
+#   /data/data/mlb/processed/games.parquet
+#
+# GHA runners have no Fly volume; download must run via remote exec.
+name: MLB data refresh
+
+on:
+  schedule:
+    # 14:00 UTC ≈ morning US after overnight game finals
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+env:
+  # Must match fly.toml `app`; rename here if you changed the Fly app name.
+  FLY_APP: gametime-api
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Run gametime-download on Fly volume
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          flyctl ssh console -a "$FLY_APP" -C "pip install -q -e '/app[mlb]' && gametime-download --config /data/configs/mlb.yaml && python3 -c \"import pandas as pd; g=pd.read_parquet('/data/data/mlb/processed/games.parquet'); g['game_date']=pd.to_datetime(g['game_date']); print('games_max_date', g['game_date'].max().date())\""
