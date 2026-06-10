@@ -14,7 +14,7 @@ Workers read only their assigned prompt plus `agents.md`, `STANDARDS.md`, and ta
 |------|------|--------|
 | `TASK-13-AGENT_DATA.md` | W12 Statcast offense | model track |
 | `TASK-21-AGENT_INFRA.md` | Predictions API v1 | PR #12 |
-| `TASK-23-AGENT_FRONTEND.md` | App shell | ready to dispatch |
+| `TASK-23-AGENT_FRONTEND.md` | App shell | **dispatch now** |
 | `TASK-26-AGENT_DESIGN.md` | UX/visual spec | PR #11 |
 | `TASK-27-AGENT_CONTENT.md` | Methodology + trust | PR #10 |
 
