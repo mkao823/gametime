@@ -89,6 +89,29 @@ Both modes require the same `ensemble.json` artifact from `gametime-pregame-trai
 
 `pregame.calibration.total_enabled` (default **`false`**). When true, `pred_total` passes through `models/mlb/pregame/total_calibration.json` (val-fit). Re-run `gametime-pregame-train` after toggling.
 
+## Local API (Predictions API v1)
+
+Read-only HTTP service over the same ensemble as CLI (no train/download in request path).
+
+```bash
+pip install -e '.[api]'
+uvicorn gametime.api.app:app --reload
+# or: gametime-api
+```
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `GAMETIME_ROOT` | repo root | Artifact and data root |
+| `GAMETIME_CONFIG` | `configs/mlb.yaml` | MLB ensemble config |
+
+```bash
+curl -s http://127.0.0.1:8000/health | python3 -m json.tool
+curl -s "http://127.0.0.1:8000/v1/slate?date=2024-06-15&regular_season=true"
+curl -s "http://127.0.0.1:8000/v1/game?home=NYY&away=BOS&date=2024-06-15"
+```
+
+OpenAPI schema: `http://127.0.0.1:8000/openapi.json`. `GET /v1/game` returns **404** when the matchup is not on the slate for that date.
+
 ## Single game
 
 ```bash

@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.1"]
 mlb = ["pybaseball>=2.2.7"]
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
 
 [project.scripts]
 gametime-download = "gametime.cli:download"
@@ -36,6 +37,7 @@ gametime-pregame = "gametime.cli:pregame"
 gametime-pregame-train = "gametime.cli:pregame_train"
 gametime-pregame-slate = "gametime.cli:pregame_slate"
 gametime-pregame-slate-backtest = "gametime.cli:pregame_slate_backtest"
+gametime-api = "gametime.api.__main__:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
