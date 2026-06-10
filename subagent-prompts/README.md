@@ -15,7 +15,8 @@ Workers read only their assigned prompt plus `agents.md`, `STANDARDS.md`, and ta
 | `TASK-13-AGENT_DATA.md` | W12 Statcast offense | model track |
 | `TASK-21-AGENT_INFRA.md` | Predictions API v1 | PR #12 |
 | `TASK-23-AGENT_FRONTEND.md` | App shell | PR #14 |
-| `TASK-24-AGENT_FRONTEND.md` | Daily slate page | **dispatch now** |
+| `TASK-24-AGENT_FRONTEND.md` | Daily slate page | PR #15 |
+| `TASK-25-AGENT_FRONTEND.md` | Game detail | **dispatch now** |
 | `TASK-26-AGENT_DESIGN.md` | UX/visual spec | PR #11 |
 | `TASK-27-AGENT_CONTENT.md` | Methodology + trust | PR #10 |
 | `TASK-28-AGENT_INFRA.md` | Docker + Fly scaffold | ready |
