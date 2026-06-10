@@ -8,14 +8,20 @@
   margin-bottom: var(--space-4);
 }
 
-.fallbackGrid {
+.meta {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--space-4);
 }
 
 @media (min-width: 768px) {
-  .fallbackGrid {
+  .grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
