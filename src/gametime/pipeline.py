@@ -203,6 +203,42 @@ def run_download(cfg: dict, root: Path) -> Path:
                 boxscore_cache_dir=box_cache,
                 max_dates=int(lineup_max_dates) if lineup_max_dates is not None else None,
             )
+        statcast_out = resolve_path(
+            root,
+            data_cfg.get(
+                "statcast_offense_games_path",
+                "data/mlb/processed/statcast_offense_games.parquet",
+            ),
+        )
+        statcast_max_dates = data_cfg.get("statcast_offense_max_dates")
+        needs_statcast = (
+            data_cfg.get("refresh_statcast_offense_games", False)
+            or not statcast_out.exists()
+            or (
+                train_seasons
+                and _sidecar_needs_train_backfill(
+                    out,
+                    statcast_out,
+                    train_seasons,
+                    "has_statcast_offense",
+                    min_frac=sidecar_min_frac,
+                )
+            )
+        )
+        if needs_statcast:
+            from gametime.ingest.mlb_statcast_offense import download_statcast_offense_games
+
+            statcast_cache = resolve_path(
+                root,
+                data_cfg.get("statcast_offense_cache_dir", "data/mlb/raw/statcast_offense"),
+            )
+            download_statcast_offense_games(
+                out,
+                statcast_out,
+                min_season=int(data_cfg.get("statcast_offense_min_season", 2021)),
+                cache_dir=statcast_cache,
+                max_dates=int(statcast_max_dates) if statcast_max_dates is not None else None,
+            )
         return out
 
     data_cfg = cfg["data"]

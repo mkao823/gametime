@@ -34,9 +34,15 @@ from gametime.pregame.baseball.models.travel_rest import (
 )
 from gametime.pregame.baseball.models.weather import WeatherMember, attach_weather
 from gametime.pregame.baseball.models.lineup import LineupMember, attach_lineup
+from gametime.pregame.baseball.models.statcast_offense import (
+    StatcastOffenseMember,
+    attach_statcast_offense,
+)
+from gametime.ingest import mlb_statcast_offense
 from gametime.ingest import mlb_weather
 from gametime.ingest import mlb_lineup
 from gametime.ingest.mlb_lineup import LEAGUE_WOBA
+from gametime.ingest.mlb_statcast_offense import LEAGUE_XWOBA, STATCAST_OFFENSE_COLUMNS
 from gametime.pregame.baseball.prediction import MemberPrediction
 
 
@@ -1019,3 +1025,130 @@ def test_lineup_ingest_row_alignment_uses_game_id_keys(tmp_path):
     )
     assert set(lineup["game_id"].astype(str)) == {f"g{i}" for i in range(8)}
     assert lineup["home_lineup_woba"].nunique() > 1
+
+
+def test_aggregate_day_statcast_team_batting():
+    raw = pd.DataFrame(
+        {
+            "game_date": ["2024-06-01"] * 4,
+            "home_team": ["NYY"] * 4,
+            "away_team": ["BOS"] * 4,
+            "inning_topbot": ["Top", "Top", "Bot", "Bot"],
+            "woba_value": [0.5, 0.0, 0.8, 0.0],
+            "woba_denom": [1, 1, 1, 0],
+            "launch_speed": [98.0, np.nan, 88.0, np.nan],
+            "launch_speed_angle": [6, np.nan, 3, np.nan],
+        }
+    )
+    agg = mlb_statcast_offense._aggregate_day_statcast(raw)
+    bos = agg.loc[agg["team"] == "BOS"].iloc[0]
+    nyy = agg.loc[agg["team"] == "NYY"].iloc[0]
+    assert bos["pa"] == 2
+    assert bos["barrels"] == 1
+    assert bos["hard_hits"] == 1
+    assert nyy["pa"] == 1
+    assert nyy["bbe"] == 1
+    assert nyy["barrels"] == 0
+
+
+def test_team_rolling_metrics_shift_one_no_same_day_leakage():
+    daily = pd.DataFrame(
+        {
+            "team": ["AAA"] * 5,
+            "game_date": pd.date_range("2024-06-01", periods=5),
+            "pa": [10, 10, 10, 10, 10],
+            "xwoba_num": [3.0, 3.2, 3.4, 3.6, 3.8],
+            "xwoba_den": [10, 10, 10, 10, 10],
+            "bbe": [6, 6, 6, 6, 6],
+            "barrels": [1, 1, 1, 1, 1],
+            "hard_hits": [3, 3, 3, 3, 3],
+        }
+    )
+    roll = mlb_statcast_offense._team_rolling_metrics(daily, window=3, min_pa=20)
+    first = roll.iloc[0]
+    assert first["has_statcast"] == 0
+    assert first["xwoba_roll"] == pytest.approx(LEAGUE_XWOBA)
+    later = roll.iloc[4]
+    assert later["has_statcast"] == 1
+    assert later["xwoba_roll"] == pytest.approx(0.34)
+
+
+def test_attach_statcast_offense_by_game_id():
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "game_date": pd.to_datetime(["2024-06-10", "2024-06-11"]),
+            "home_team": ["NYY", "BOS"],
+            "away_team": ["BOS", "NYY"],
+            "home_runs": [5, 4],
+            "away_runs": [3, 5],
+            "total_final": [8, 9],
+            "margin_final": [2, -1],
+            "season_start_year": [2024, 2024],
+            "seasontype": ["rg", "rg"],
+        }
+    )
+    table = build_training_table(games)
+    sidecar = pd.DataFrame(
+        {
+            "game_id": ["g0", "g1"],
+            "home_xwoba_roll": [0.340, 0.325],
+            "away_xwoba_roll": [0.310, 0.335],
+            "home_barrel_pct_roll": [0.090, 0.085],
+            "away_barrel_pct_roll": [0.075, 0.080],
+            "home_hard_hit_pct_roll": [0.410, 0.400],
+            "away_hard_hit_pct_roll": [0.380, 0.390],
+            "xwoba_off_diff": [0.030, -0.010],
+            "has_statcast_offense": [1, 1],
+        }
+    )
+    enriched = attach_statcast_offense(table, sidecar)
+    assert enriched.loc[enriched["game_id"] == "g0", "home_xwoba_roll"].iloc[0] == pytest.approx(0.340)
+    assert (enriched["has_statcast_offense"] == 1).all()
+
+
+def test_attach_statcast_offense_fallback_when_sidecar_missing():
+    games = pd.DataFrame(
+        {
+            "game_id": ["g0"],
+            "game_date": pd.to_datetime(["2024-06-10"]),
+            "home_team": ["AAA"],
+            "away_team": ["BBB"],
+            "home_runs": [4],
+            "away_runs": [3],
+            "total_final": [7],
+            "margin_final": [1],
+            "season_start_year": [2024],
+            "seasontype": ["rg"],
+        }
+    )
+    table = build_training_table(games)
+    enriched = attach_statcast_offense(table, pd.DataFrame())
+    row = enriched.iloc[0]
+    assert row["has_statcast_offense"] == 0
+    assert row["home_xwoba_roll"] == pytest.approx(LEAGUE_XWOBA)
+    assert row["xwoba_off_diff"] == pytest.approx(0.0)
+
+
+def test_statcast_offense_member_predicts_with_fallback():
+    df = pd.DataFrame(
+        {
+            "home_xwoba_roll": [0.340, LEAGUE_XWOBA],
+            "away_xwoba_roll": [0.310, LEAGUE_XWOBA],
+            "home_barrel_pct_roll": [0.090, 0.080],
+            "away_barrel_pct_roll": [0.075, 0.080],
+            "has_statcast_offense": [1, 0],
+            "total_final": [8.5, 8.7],
+            "margin_final": [0.1, 0.0],
+        }
+    )
+    member = StatcastOffenseMember()
+    member.fit(df.iloc[:1])
+    pred = member.predict(df.iloc[1:2])
+    assert np.isfinite(pred.total[0])
+    assert np.isfinite(pred.margin[0])
+
+
+def test_statcast_offense_sidecar_columns_constant():
+    assert "has_statcast_offense" in STATCAST_OFFENSE_COLUMNS
+    assert "xwoba_off_diff" in STATCAST_OFFENSE_COLUMNS

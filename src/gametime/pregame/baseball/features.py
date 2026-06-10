@@ -7,7 +7,7 @@ FEATURE_ROADMAP (not yet wired):
   - weather (temp, wind, humidity via open meteo or retrosheet)  [W6j shipped]
   - R1 high-priority (see docs/mlb_ensemble_research_backlog.md):
     - historical SP/lineup sidecar backfill for train [P1 — W10]
-    - Statcast team x offense: xwOBA, barrel%, hard-hit% [P3 — W12]
+    - Statcast team x offense: xwOBA, barrel%, hard-hit% [P3 — W12 shipped]
     - bullpen IP/rest rolling 3d, pen vs starter FIP delta [P2 — W11]
     - park × weather interaction (wind×HR factor) [P10 — spike]
     - SP Stuff+ / pitch-mix from Statcast [P9 — spike]
@@ -55,6 +55,15 @@ FEATURE_COLUMNS = [
     "lineup_platoon_diff",
     "has_lineup",
     "has_starting_pitcher",
+    # statcast offense sidecar (W12 / P3)
+    "home_xwoba_roll",
+    "away_xwoba_roll",
+    "home_barrel_pct_roll",
+    "away_barrel_pct_roll",
+    "home_hard_hit_pct_roll",
+    "away_hard_hit_pct_roll",
+    "xwoba_off_diff",
+    "has_statcast_offense",
     # series context (W6o; games.parquet only)
     "series_game_num",
     "is_series_finale",
@@ -65,6 +74,9 @@ FEATURE_COLUMNS = [
 ]
 
 LEAGUE_FIP = 4.20
+LEAGUE_XWOBA = 0.320
+LEAGUE_BARREL_PCT = 0.080
+LEAGUE_HARD_HIT_PCT = 0.390
 
 TARGET_TOTAL = "total_final"
 TARGET_MARGIN = "margin_final"
@@ -187,6 +199,18 @@ def build_training_table(games: pd.DataFrame, *, form_window: int = 10) -> pd.Da
         ("away_lineup_woba", 0.320),
         ("lineup_platoon_diff", 0.0),
         ("has_lineup", 0),
+    ):
+        if col not in table.columns:
+            table[col] = default
+    for col, default in (
+        ("home_xwoba_roll", LEAGUE_XWOBA),
+        ("away_xwoba_roll", LEAGUE_XWOBA),
+        ("home_barrel_pct_roll", LEAGUE_BARREL_PCT),
+        ("away_barrel_pct_roll", LEAGUE_BARREL_PCT),
+        ("home_hard_hit_pct_roll", LEAGUE_HARD_HIT_PCT),
+        ("away_hard_hit_pct_roll", LEAGUE_HARD_HIT_PCT),
+        ("xwoba_off_diff", 0.0),
+        ("has_statcast_offense", 0),
     ):
         if col not in table.columns:
             table[col] = default
@@ -317,6 +341,14 @@ def build_inference_row(
         "home_park_factor": 1.0,
         "park_factor_log": 0.0,
         "has_park_factor": 0,
+        "home_xwoba_roll": LEAGUE_XWOBA,
+        "away_xwoba_roll": LEAGUE_XWOBA,
+        "home_barrel_pct_roll": LEAGUE_BARREL_PCT,
+        "away_barrel_pct_roll": LEAGUE_BARREL_PCT,
+        "home_hard_hit_pct_roll": LEAGUE_HARD_HIT_PCT,
+        "away_hard_hit_pct_roll": LEAGUE_HARD_HIT_PCT,
+        "xwoba_off_diff": 0.0,
+        "has_statcast_offense": 0,
         **rs,
     }
     row["form_off_diff"] = row["home_form_runs_scored"] - row["away_form_runs_scored"]

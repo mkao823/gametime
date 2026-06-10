@@ -56,6 +56,7 @@ from gametime.ingest.mlb_park import load_park_factors
 from gametime.ingest.mlb_pitchers import load_pitcher_games
 from gametime.ingest.mlb_weather import load_weather_games
 from gametime.ingest.mlb_lineup import load_lineup_games
+from gametime.ingest.mlb_statcast_offense import load_statcast_offense_games
 from gametime.pregame.baseball.models.series_context import (
     SeriesContextMember,
     attach_series_context,
@@ -66,6 +67,7 @@ from gametime.pregame.baseball.models.travel_rest import (
 )
 from gametime.pregame.baseball.models.weather import WeatherMember, attach_weather
 from gametime.pregame.baseball.models.lineup import LineupMember, attach_lineup
+from gametime.pregame.baseball.models.statcast_offense import attach_statcast_offense
 from gametime.pregame.baseball.prediction import (
     EnsemblePrediction,
     MemberPrediction,
@@ -215,6 +217,7 @@ def train_baseball_pregame(
     park_factors_path: Path | None = None,
     weather_games_path: Path | None = None,
     lineup_games_path: Path | None = None,
+    statcast_offense_games_path: Path | None = None,
     league_total_fallback: float = 8.5,
     h2h_window: int = 10,
     h2h_shrink_k: float = 8.0,
@@ -233,6 +236,8 @@ def train_baseball_pregame(
     table = attach_weather(table, weather_games)
     lineup_games = load_lineup_games(lineup_games_path)
     table = attach_lineup(table, lineup_games)
+    statcast_games = load_statcast_offense_games(statcast_offense_games_path)
+    table = attach_statcast_offense(table, statcast_games)
     table = attach_travel_rest(table, games)
     table = attach_series_context(table, games)
     table = attach_runs_strength(table, games, window=runs_strength_window)
@@ -426,6 +431,25 @@ def train_baseball_pregame(
         "has_lineup_frac_train": float((train_df["has_lineup"] == 1).mean()) if len(train_df) else 0.0,
         "has_lineup_frac_val": float((val_df["has_lineup"] == 1).mean()) if len(val_df) else 0.0,
         "has_lineup_frac_test": float((test_df["has_lineup"] == 1).mean()) if len(test_df) else 0.0,
+        "statcast_offense_games_path": str(statcast_offense_games_path)
+        if statcast_offense_games_path
+        else None,
+        "has_statcast_offense_frac": float((table["has_statcast_offense"] == 1).mean()),
+        "has_statcast_offense_frac_train": float(
+            (train_df["has_statcast_offense"] == 1).mean()
+        )
+        if len(train_df)
+        else 0.0,
+        "has_statcast_offense_frac_val": float(
+            (val_df["has_statcast_offense"] == 1).mean()
+        )
+        if len(val_df)
+        else 0.0,
+        "has_statcast_offense_frac_test": float(
+            (test_df["has_statcast_offense"] == 1).mean()
+        )
+        if len(test_df)
+        else 0.0,
         "has_series_context_frac": float((table["has_series_context"] == 1).mean()),
         "has_series_context_frac_train": float((train_df["has_series_context"] == 1).mean())
         if len(train_df)

@@ -71,6 +71,16 @@ def filter_lineup_games_for_history(
     return lineup_games[lineup_games["game_id"].astype(str).isin(ids)].copy()
 
 
+def filter_statcast_offense_games_for_history(
+    statcast_games: Optional[pd.DataFrame],
+    games_through: pd.DataFrame,
+) -> Optional[pd.DataFrame]:
+    if statcast_games is None or statcast_games.empty:
+        return statcast_games
+    ids = set(games_through["game_id"].astype(str))
+    return statcast_games[statcast_games["game_id"].astype(str).isin(ids)].copy()
+
+
 def write_games_through(
     games: pd.DataFrame,
     slate_date: date,
@@ -168,6 +178,7 @@ def run_slate_backtest_day(
     park_factors_path: Optional[Path],
     weather_games_path: Optional[Path] = None,
     lineup_games_path: Optional[Path] = None,
+    statcast_offense_games_path: Optional[Path] = None,
     league_total_fallback: float,
     h2h_window: int,
     h2h_shrink_k: float,
@@ -217,6 +228,17 @@ def run_slate_backtest_day(
             )
             lg_filtered.to_parquet(lineup_through, index=False)
             lineup_path = lineup_through
+    statcast_path = statcast_offense_games_path
+    if statcast_offense_games_path is not None and Path(statcast_offense_games_path).exists():
+        sc_full = pd.read_parquet(statcast_offense_games_path)
+        sc_filtered = filter_statcast_offense_games_for_history(sc_full, games_through)
+        if sc_filtered is not None and len(sc_filtered) < len(sc_full):
+            statcast_through = (
+                games_through_dir
+                / f"statcast_offense_games_through_{slate_date.isoformat()}.parquet"
+            )
+            sc_filtered.to_parquet(statcast_through, index=False)
+            statcast_path = statcast_through
 
     factory = predictor_factory or BaseballPregamePredictor
     predictor = factory(
@@ -232,6 +254,7 @@ def run_slate_backtest_day(
         park_factors_path=park_factors_path,
         weather_games_path=weather_path,
         lineup_games_path=lineup_path,
+        statcast_offense_games_path=statcast_path,
         league_total_fallback=league_total_fallback,
         h2h_window=h2h_window,
         h2h_shrink_k=h2h_shrink_k,
@@ -310,6 +333,7 @@ def run_slate_backtest(
     park_factors_path: Optional[Path],
     weather_games_path: Optional[Path] = None,
     lineup_games_path: Optional[Path] = None,
+    statcast_offense_games_path: Optional[Path] = None,
     league_total_fallback: float,
     h2h_window: int,
     h2h_shrink_k: float,
@@ -336,6 +360,7 @@ def run_slate_backtest(
             park_factors_path=park_factors_path,
             weather_games_path=weather_games_path,
             lineup_games_path=lineup_games_path,
+            statcast_offense_games_path=statcast_offense_games_path,
             league_total_fallback=league_total_fallback,
             h2h_window=h2h_window,
             h2h_shrink_k=h2h_shrink_k,
