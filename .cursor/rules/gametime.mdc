@@ -1,0 +1,44 @@
+---
+description: gametime agent workflow — read before any task
+globs:
+  - "**/*"
+---
+
+# gametime — Cursor Rules
+
+## Project
+- Name: gametime
+- Stack: Python, LightGBM, parquet, YAML config; MLB pregame ensemble (active), NBA (maintenance)
+- Repo layout: `src/gametime/`, `configs/`, `subagent-prompts/`, workflow files at repo root
+
+## Always Do First
+- Read `agents.md`, `STANDARDS.md`, and `orchestrator-prompt.md` before any task
+- Check Off-Limits Areas in `agents.md`
+- Code-writing agents (AGENT_INFRA, AGENT_DATA, AGENT_BACKEND) must read `STANDARDS.md` before writing code
+- Existing files → Existing Patterns. New files → Forward Standards.
+- Check the task board in `orchestrator-prompt.md` before starting
+
+## Commit & Branch Rules
+- Commit format: `[AGENT_ID] TASK-XX: short description`
+- Branch: `task/TASK-XX-short-desc` from `main`
+- Merge target: `main` (no integration branch)
+- Never commit to `main` directly
+- Never commit secrets or `.env` files
+
+## Standards
+- `STANDARDS.md` is the source of truth for coding decisions
+- Conflicts with `STANDARDS.md` → stop and flag, do not improvise
+- MLB constraints: `docs/mlb_ensemble_roadmap.md`
+- MLB ops: `docs/mlb_pregame_ops.md`
+
+## Single Source of Truth
+- `orchestrator-prompt.md` is the only backlog
+- Worker prompts live in `subagent-prompts/` — not in archived docs
+- `_archived/pre-reconcile/` is retired — do not use for task guidance
+
+## Hard Constraints
+- Do not break existing functionality
+- Do not add dependencies without PR description note
+- New MLB members: test decorrelation r < 0.94 vs all incumbents before merge
+- Production blend: `use_stacking: false` unless human approves winner% tradeoff
+- Val-only weight/stacker fitting; test 2025 is report-only holdout
