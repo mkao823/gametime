@@ -19,6 +19,45 @@ python3 -m gametime.cli <command> ...
 
 `configs/mlb.yaml` lists `data.seasons` through the current MLB year so form/Elo/Poisson see recent results.
 
+### Scheduler-safe refresh profiles (TASK-36)
+
+`gametime-download` now supports explicit MLB refresh modes with machine-readable run markers:
+
+```bash
+# Daily automation default (incremental and lightweight)
+gametime-download --config configs/mlb.yaml --mode daily
+
+# Operator-triggered refresh (daily + train-coverage guardrails)
+gametime-download --config configs/mlb.yaml --mode manual
+
+# Heavy rebuild (unscheduled backfill/full refresh)
+gametime-download --config configs/mlb.yaml --mode backfill
+```
+
+- `daily` skips train-coverage-triggered historical sidecar rebuilds unless a sidecar is missing or explicitly forced via `refresh_*` flags.
+- `manual` keeps the existing train-coverage backfill behavior.
+- `backfill` forces all MLB sidecars to rebuild.
+
+Each run writes markers under `reports/mlb/ops/`:
+
+- `refresh_last.json` (latest run metadata)
+- `refresh_success.json` (latest successful refresh)
+- `refresh_failed.json` (latest failed refresh, with `failed_stage` + `error`)
+
+Marker payload fields include `status`, `mode`, `started_at`, `finished_at`, `elapsed_seconds`, and `games_max_date`.
+
+If refresh fails partway through, processed parquet outputs are restored to the last known-good versions before writing the failure marker.
+
+### Freshness probe for scheduler health checks
+
+```bash
+# Exit 0 on fresh data, 1 on stale/missing games parquet
+gametime-download --config configs/mlb.yaml --freshness-check
+
+# Override lag threshold (default: data.games_freshness_max_lag_days, fallback 1)
+gametime-download --config configs/mlb.yaml --freshness-check --max-lag-days 2
+```
+
 ### Hybrid `games.parquet` (pybaseball + MLB Stats API)
 
 | Step | What happens |

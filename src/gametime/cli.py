@@ -9,18 +9,57 @@ from gametime.config import load_config, project_root
 
 
 def download(argv=None):
-    from gametime.pipeline import run_download
+    from gametime.pipeline import check_mlb_refresh_freshness, run_download, run_mlb_refresh
 
     p = argparse.ArgumentParser(description="Download historical PBP archives")
     p.add_argument("--config", default="configs/default.yaml")
+    p.add_argument(
+        "--mode",
+        choices=["daily", "manual", "backfill"],
+        default="daily",
+        help="MLB refresh profile (daily default for scheduler-safe runs)",
+    )
+    p.add_argument(
+        "--freshness-check",
+        action="store_true",
+        help="Check games.parquet recency and exit with pass/fail status",
+    )
+    p.add_argument(
+        "--max-lag-days",
+        type=int,
+        default=None,
+        help="Override freshness threshold in days",
+    )
     args = p.parse_args(argv)
     root = project_root()
     cfg = load_config(root / args.config)
     from gametime.sports import get_sport
 
     sport = get_sport(cfg)
+    if args.freshness_check:
+        freshness = check_mlb_refresh_freshness(cfg, root, max_lag_days=args.max_lag_days)
+        print(json.dumps(freshness, indent=2, default=str))
+        if freshness.get("status") != "success":
+            sys.exit(1)
+        return
+
     print(f"Downloading {sport.name} data…")
-    print(f"Downloaded to {run_download(cfg, root)}")
+    if sport.family != "baseball":
+        print(f"Downloaded to {run_download(cfg, root)}")
+        return
+
+    try:
+        summary = run_mlb_refresh(cfg, root, mode=args.mode)
+    except RuntimeError as exc:
+        payload = {"status": "failed", "error": str(exc)}
+        try:
+            payload = json.loads(str(exc))
+        except json.JSONDecodeError:
+            pass
+        print(json.dumps(payload, indent=2, default=str), file=sys.stderr)
+        sys.exit(1)
+
+    print(json.dumps(summary, indent=2, default=str))
 
 
 def build_snapshots(argv=None):
