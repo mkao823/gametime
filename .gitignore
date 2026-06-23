@@ -35,6 +35,8 @@ dist/
 
 # Large data artifacts
 data/
+!src/gametime/data/
+!src/gametime/data/**
 reports/
 *.parquet
 *.feather
