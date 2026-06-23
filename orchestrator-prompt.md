@@ -139,6 +139,14 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 
 - [x] **TASK-34** AGENT_BACKEND **Fast slate (Stats API)** — merged PR #22 @ `f8179b9`.
 
+#### Epic 7 — MLB daily refresh reliability (incremental + observable)
+
+- [ ] **TASK-35** AGENT_DATA **Daily refresh ingest mode + pybaseball hardening** — incremental Stats API-first refresh path for recent days; tolerate pybaseball `"Unknown"` run values without aborting season/team pulls; add heartbeat logging in long loops. **Unblocked.**
+
+- [ ] **TASK-36** AGENT_INFRA **Automation wrapper + success/failure markers** — add operator-safe daily command profile with explicit exit codes, duration logging, freshness check, and atomic success marker write; no model behavior changes. **Unblocked.**
+
+- [ ] **TASK-37** AGENT_QA **Refresh reliability tests + ops runbook updates** — verify partial-failure behavior, stale-data detection, and scheduler-facing runbook snippets for daily/manual/backfill flows. Blocked by: TASK-35/36.
+
 ### Cancelled
 
 > Kept for record. Do not include in planning.
@@ -153,7 +161,7 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 
 ## Live Task Board
 
-> **Session audit:** 2026-06-09 — `main` @ `f8179b9`. Open PRs: **none**. `games.parquet` max_date **2026-06-08**. Pytest (67 passed, `PYTHONPATH=src`). `cd web && npm run build`: **pass**. Docker API running locally.
+> **Session audit:** 2026-06-23 (orchestrator planning refresh routine) — baseline branch reference remains `main` @ `f8179b9` until new worker handoffs land.
 
 | Task | Agent | Status | Blocked By | Notes |
 |------|-------|--------|------------|-------|
@@ -179,6 +187,9 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 | TASK-32 | AGENT_INFRA | done | — | Merged PR #21 |
 | TASK-33 | AGENT_BACKEND | done | — | Merged PR #20 |
 | TASK-34 | AGENT_BACKEND | done | — | Merged PR #22 @ `f8179b9` |
+| TASK-35 | AGENT_DATA | **ready** | — | Daily incremental MLB refresh + pybaseball Unknown-value hardening |
+| TASK-36 | AGENT_INFRA | **ready** | — | Daily automation wrapper, markers, freshness and duration signals |
+| TASK-37 | AGENT_QA | blocked | TASK-35/36 | Reliability tests + operator runbook update for daily/manual/backfill |
 
 ---
 
@@ -191,7 +202,8 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 - `main` deployable — feature branches only
 - New MLB members: decorrelation r < 0.94 vs all incumbents on test total errors
 - Do not assign W6l XGB or W11 v1 patterns (duplicate pen features in LGBM + member)
-- Daily MLB ops unchanged: `gametime-download` → `gametime-pregame-slate --regular-season --decimals 2`
+- Keep production MLB prediction behavior unchanged unless explicitly approved
+- Daily refresh initiative must avoid full historical rebuilds in normal scheduled runs
 
 ---
 
