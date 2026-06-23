@@ -1,3 +1,35 @@
+from __future__ import annotations
+
+import pandas as pd
+
+from gametime.data.game_meta import annotate_games, filter_games
+
+
+def test_annotate_games_derives_common_columns():
+    df = pd.DataFrame(
+        {
+            "game_id": ["0022400001", "0042400001"],
+        }
+    )
+    out = annotate_games(df)
+    assert "season_start_year" in out.columns
+    assert "seasontype" in out.columns
+    assert int(out.loc[0, "season_start_year"]) == 2024
+    assert out.loc[0, "seasontype"] == "rg"
+    assert out.loc[1, "seasontype"] == "po"
+
+
+def test_filter_games_applies_season_and_type():
+    df = pd.DataFrame(
+        {
+            "game_id": ["g1", "g2", "g3"],
+            "season_start_year": [2023, 2024, 2024],
+            "seasontype": ["rg", "rg", "po"],
+        }
+    )
+    out = filter_games(df, seasons=[2024], seasontypes=["rg"])
+    assert list(out["game_id"]) == ["g2"]
+
 from gametime.data.game_meta import seasontype_from_game_id, season_start_year
 
 
