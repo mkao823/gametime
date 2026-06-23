@@ -3,6 +3,9 @@
 sport: mlb
 
 data:
+  # full (default): pybaseball bulk rebuild + Stats API merge
+  # daily: use existing games.parquet + Stats API recent backfill (faster routine runs)
+  download_mode: full
   seasons: [2021, 2022, 2023, 2024, 2025, 2026]
   games_path: data/mlb/processed/games.parquet
   # M0 hybrid games: pybaseball bulk + MLB Stats API gap-fill (see docs/mlb_pregame_ops.md)

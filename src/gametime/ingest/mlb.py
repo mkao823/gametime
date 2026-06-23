@@ -26,6 +26,7 @@ DEFAULT_TEAMS = (
 
 # BR schedule slug: OAK through 2025, ATH from 2026 (Athletics relocation)
 _ATHLETICS_BR_SWITCH_SEASON = 2026
+_NON_NUMERIC_RUN_MARKERS = {"", "unknown", "nan", "none", "null", "--", "n/a", "na"}
 
 
 def teams_for_season(
@@ -318,16 +319,16 @@ def _parse_schedule_row(
     opp = _norm_team(str(row[opp_col]))
     team = _norm_team(team)
 
-    home_runs = row.get("R")
-    away_runs = row.get("RA")
-    if pd.isna(home_runs) or pd.isna(away_runs):
+    home_runs = _coerce_runs_value(row.get("R"))
+    away_runs = _coerce_runs_value(row.get("RA"))
+    if home_runs is None or away_runs is None:
         return None
 
     home, away = _home_away_from_row(row, team, opp)
     if home == team:
-        hr, ar = float(home_runs), float(away_runs)
+        hr, ar = home_runs, away_runs
     else:
-        hr, ar = float(away_runs), float(home_runs)
+        hr, ar = away_runs, home_runs
 
     date_val = row.get("Date") or row.get("date")
     if date_val is None or pd.isna(date_val):
@@ -354,7 +355,26 @@ def _parse_schedule_row(
     }
 
 
-def fetch_team_season(team: str, season_start_year: int, *, pause: float = 0.4) -> pd.DataFrame:
+def _coerce_runs_value(value: Any) -> Optional[float]:
+    """Return numeric runs value or ``None`` for non-final/invalid placeholders."""
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    if text.lower() in _NON_NUMERIC_RUN_MARKERS:
+        return None
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_team_season(
+    team: str,
+    season_start_year: int,
+    *,
+    pause: float = 0.4,
+    row_heartbeat_every: int = 250,
+) -> pd.DataFrame:
     try:
         from pybaseball import cache
         from pybaseball import schedule_and_record
@@ -370,27 +390,57 @@ def fetch_team_season(team: str, season_start_year: int, *, pause: float = 0.4) 
     if df is None or df.empty:
         return pd.DataFrame()
     rows = []
-    for _, row in df.iterrows():
-        parsed = _parse_schedule_row(row, team, season_start_year)
+    skipped_rows = 0
+    start = time.time()
+    for idx, row in enumerate(df.itertuples(index=False), start=1):
+        series = pd.Series(row._asdict())
+        parsed = _parse_schedule_row(series, team, season_start_year)
         if parsed:
             rows.append(parsed)
+        else:
+            skipped_rows += 1
+        if row_heartbeat_every > 0 and idx % int(row_heartbeat_every) == 0:
+            print(
+                f"[mlb] heartbeat team={team} season={season_start_year} "
+                f"rows={idx} accepted={len(rows)} skipped={skipped_rows} "
+                f"elapsed_s={time.time() - start:.1f}"
+            )
+    if skipped_rows:
+        print(
+            f"[mlb] team={team} season={season_start_year} skipped_rows={skipped_rows} "
+            "(non-final/invalid runs)"
+        )
     return pd.DataFrame(rows)
 
 
 def build_games_table(
     seasons: Iterable[int],
     teams: Optional[Iterable[str]] = None,
+    *,
+    heartbeat_every_teams: int = 8,
 ) -> pd.DataFrame:
     frames = []
+    team_counter = 0
+    accepted_rows = 0
+    skipped_teams = 0
+    start = time.time()
     for season in seasons:
         season_teams = list(teams_for_season(season, teams))
         for team in season_teams:
+            team_counter += 1
             try:
                 chunk = fetch_team_season(team, int(season))
                 if not chunk.empty:
+                    accepted_rows += len(chunk)
                     frames.append(chunk)
             except Exception as exc:
+                skipped_teams += 1
                 print(f"[mlb] skip {team} {season}: {exc}")
+            if heartbeat_every_teams > 0 and team_counter % int(heartbeat_every_teams) == 0:
+                print(
+                    f"[mlb] heartbeat teams={team_counter} accepted_rows={accepted_rows} "
+                    f"skipped_teams={skipped_teams} elapsed_s={time.time() - start:.1f}"
+                )
     if not frames:
         return pd.DataFrame(
             columns=[
@@ -420,12 +470,24 @@ def download_mlb_games(
     statsapi_game_types: Optional[list[str]] = None,
     statsapi_postseason_enabled: bool = False,
     statsapi_postseason_types: Optional[list[str]] = None,
+    mode: str = "full",
 ) -> Path:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    games = build_games_table(seasons, teams)
-    if games.empty:
-        raise ValueError(f"No MLB games fetched for seasons={seasons}")
+    mode_norm = str(mode or "full").strip().lower()
+    if mode_norm not in {"full", "daily"}:
+        raise ValueError(f"Unsupported MLB download mode={mode!r} (expected full|daily)")
+    use_daily_incremental = mode_norm == "daily" and out_path.exists()
+
+    if use_daily_incremental:
+        games = pd.read_parquet(out_path)
+        print(f"[mlb] daily mode: incremental refresh from existing {out_path}")
+    else:
+        games = build_games_table(seasons, teams)
+        if games.empty:
+            raise ValueError(f"No MLB games fetched for seasons={seasons}")
+        if mode_norm == "daily":
+            print("[mlb] daily mode fallback: games artifact missing, rebuilding baseline")
 
     from gametime.ingest.mlb_statsapi_games import merge_statsapi_into_games
 
