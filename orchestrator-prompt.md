@@ -121,17 +121,23 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 
 - [ ] **TASK-20** AGENT_QA Verify each shipped MLB window meets standards, decorrelation gate, and existing NBA tests intact
 
-#### Epic 6 — Deployment (Vercel + Fly.io)
+#### Epic 6 — Deployment (Vercel + local API)
 
-> **Default stack:** Vercel Hobby (`web/`) + Fly.io API (Docker volume for `data/` + `models/`) + GitHub Actions cron (TASK-29).
+> **Default stack:** Vercel Hobby (`web/`) + **local Docker API** + **Cloudflare Tunnel** (free).
 
-- [ ] **TASK-28** AGENT_INFRA **Docker + Fly scaffold** — `Dockerfile`, `docker-compose.yml`, `fly.toml`, volume layout; branch `task/TASK-28-docker-fly-scaffold`. **Blocked by:** TASK-21.
+- [x] **TASK-28** AGENT_INFRA **Docker scaffold** — merged PR #16.
 
-- [ ] **TASK-29** AGENT_INFRA **Scheduled data refresh** — GHA `mlb-data-refresh.yml` → `fly ssh` + `gametime-download` on volume. **Blocked by:** TASK-28.
+- [x] **TASK-29** AGENT_INFRA **Fly GHA cron** — merged PR #19; **superseded** by TASK-32 local cron (do not use unless on Fly).
 
-- [ ] **TASK-30** AGENT_INFRA **Production deploy runbook** — Vercel (`web/`, `GAMETIME_API_URL`) + Fly deploy docs; optional smoke workflow. **Blocked by:** TASK-28; soft: TASK-23/24 merged.
+- [x] **TASK-30** AGENT_INFRA **Deploy runbook** — merged PR #18.
 
-- [ ] **TASK-31** AGENT_QA **E2E smoke** — Playwright against Vercel + API `/health`. **Blocked by:** TASK-30.
+- [ ] **TASK-31** AGENT_QA **E2E smoke** — Playwright vs local stack + optional Vercel/tunnel; **`TASK-31-AGENT_QA.md` ready to dispatch**.
+
+- [x] **TASK-32** AGENT_INFRA **Local + Cloudflare Tunnel** — merged PR #21.
+
+- [x] **TASK-33** AGENT_BACKEND **Slate sort by start time** — merged PR #20.
+
+- [x] **TASK-34** AGENT_BACKEND **Fast slate (Stats API)** — merged PR #22 @ `f8179b9`.
 
 ### Cancelled
 
@@ -147,6 +153,8 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 
 ## Live Task Board
 
+> **Session audit:** 2026-06-09 — `main` @ `f8179b9`. Open PRs: **none**. `games.parquet` max_date **2026-06-08**. Pytest (67 passed, `PYTHONPATH=src`). `cd web && npm run build`: **pass**. Docker API running locally.
+
 | Task | Agent | Status | Blocked By | Notes |
 |------|-------|--------|------------|-------|
 | TASK-01–12 | various | done | — | MLB foundation through W10 |
@@ -161,13 +169,16 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 | TASK-21 | AGENT_INFRA | done | — | Merged PR #12 — Predictions API v1 |
 | TASK-23 | AGENT_FRONTEND | done | — | Merged PR #14 |
 | TASK-24 | AGENT_FRONTEND | done | — | Merged PR #15 |
-| TASK-25 | AGENT_FRONTEND | **in progress** | — | Game detail — `TASK-25-AGENT_FRONTEND.md` |
+| TASK-25 | AGENT_FRONTEND | done | — | Merged PR #17 |
 | TASK-26 | AGENT_DESIGN | done | — | Merged PR #11 |
 | TASK-27 | AGENT_CONTENT | done | — | Merged PR #10 |
-| TASK-28 | AGENT_INFRA | **in progress** | — | Docker + Fly — `TASK-28-AGENT_INFRA.md` |
-| TASK-29 | AGENT_INFRA | todo | TASK-28 | GHA cron — prompt ready, not dispatched |
-| TASK-30 | AGENT_INFRA | **in progress** | TASK-28 (soft) | Vercel + Fly — `TASK-30-AGENT_INFRA.md` |
-| TASK-31 | AGENT_QA | todo | TASK-30 | E2E smoke |
+| TASK-28 | AGENT_INFRA | done | — | Merged PR #16 |
+| TASK-29 | AGENT_INFRA | done (superseded) | — | Merged PR #19; use TASK-32 local cron instead |
+| TASK-30 | AGENT_INFRA | done | — | Merged PR #18 |
+| TASK-31 | AGENT_QA | **ready** | — | E2E Playwright — `TASK-31-AGENT_QA.md` **next dispatch** |
+| TASK-32 | AGENT_INFRA | done | — | Merged PR #21 |
+| TASK-33 | AGENT_BACKEND | done | — | Merged PR #20 |
+| TASK-34 | AGENT_BACKEND | done | — | Merged PR #22 @ `f8179b9` |
 
 ---
 
@@ -187,8 +198,9 @@ Blend: `use_stacking: false`. Total calibration: `total_enabled: false`.
 ## Orchestrator Audit Commands
 
 ```bash
-git fetch origin && git status -sb && git log main -3 --oneline
+git fetch origin && git status -sb && git log origin/main -5 --oneline
+gh pr list --state open
 python3 -c "import pandas as pd; g=pd.read_parquet('data/mlb/processed/games.parquet'); g['game_date']=pd.to_datetime(g['game_date']); print('max_date', g['game_date'].max().date())"
-# decorrelation: reports/mlb/eval/pregame_summary.json → decorrelation.test_total_error_corr
-pytest tests/test_baseball_ensemble.py -q
+PYTHONPATH=src python3 -m pytest tests/test_baseball_ensemble.py tests/test_api_predictions.py tests/test_mlb_slate_schedule.py -q
+cd web && npm run build
 ```
