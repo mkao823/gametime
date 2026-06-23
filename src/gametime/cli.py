@@ -326,7 +326,6 @@ def live(argv=None):
 def pregame_train(argv=None):
     from gametime.pipeline import v3_archive_seasons
     from gametime.pregame.elo import EloParams
-    from gametime.pregame.train import train_pregame
     from gametime.sports import get_sport
 
     p = argparse.ArgumentParser(description="Train pre-game models (total + margin/winner)")
@@ -416,6 +415,8 @@ def pregame_train(argv=None):
         return
 
     model_dir = root / pg.get("model_dir", "models/pregame")
+    from gametime.pregame.train import train_pregame
+
     elo_cfg = pg.get("elo", {})
     elo_params = EloParams(
         base_rating=float(elo_cfg.get("base_rating", 1500.0)),
